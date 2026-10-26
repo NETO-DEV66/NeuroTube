@@ -71,6 +71,20 @@ internal object HomeIndex {
             destination = home,
         )
 
+    /**
+     * The switch on the account page that decides whether signing in brings the library in on its
+     * own. Declared here so settings search finds it by name.
+     */
+    val accountAutoImport =
+        SettingEntry(
+            key = "account.auto_import",
+            title = R.string.youtube_account_import_auto_title,
+            summary = R.string.youtube_account_import_auto_summary,
+            keywords = R.string.youtube_account_import_auto_keywords,
+            destination = SettingsDestination.ACCOUNT,
+        )
+
     /** The persona card is found through Your taste's own destination entry, not listed twice. */
-    val all = listOf(account, deepFocus, deepFocusDuration, deepFocusHistory, deepFocusScrobble, checkForUpdates)
+    val all =
+        listOf(account, accountAutoImport, deepFocus, deepFocusDuration, deepFocusHistory, deepFocusScrobble, checkForUpdates)
 }

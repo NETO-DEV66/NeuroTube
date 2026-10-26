@@ -7,7 +7,6 @@ import android.util.Log
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
-import dagger.hilt.android.HiltAndroidApp
 import com.neurotube.app.account.YouTubeAccountRepository
 import com.neurotube.app.data.local.CONTENT_LANGUAGE_FOLLOW_APP
 import com.neurotube.app.data.local.PlayerPreferences
@@ -32,6 +31,7 @@ import com.neurotube.app.utils.normalizeYouTubeCountry
 import com.neurotube.app.utils.potoken.NewPipePoTokenProvider
 import com.neurotube.app.utils.potoken.VisitorIdentityStore
 import com.neurotube.app.utils.potoken.WebPoTokenSession
+import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -71,6 +71,9 @@ class FlowTubeApplication :
     @Inject
     lateinit var visitorIdentityStore: VisitorIdentityStore
 
+    @Inject
+    lateinit var accountImportCoordinator: com.neurotube.app.account.AccountLibraryImportCoordinator
+
     override fun newImageLoader(context: PlatformContext): ImageLoader = imageLoader
 
     companion object {
@@ -91,6 +94,9 @@ class FlowTubeApplication :
 
         // Restores a saved YouTube session before the first request can need it.
         YouTubeAccountRepository.initialize(this)
+
+        // Watches for a signed-in account and brings its library in automatically, once.
+        accountImportCoordinator.start()
 
         DiscordPresenceRuntime.initialize(this, okHttpClient)
 

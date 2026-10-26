@@ -1,7 +1,6 @@
 package com.neurotube.app.ui.screens.settings.account
 
 import android.app.Activity
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,15 +33,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neurotube.app.R
 import com.neurotube.app.account.AccountImportReport
 import com.neurotube.app.account.AccountImportState
-import com.neurotube.app.account.AccountImportStep
 import com.neurotube.app.account.YouTubeAccount
+import com.neurotube.app.account.titleRes
 import com.neurotube.app.ui.components.settings.SettingsGroupScope
 import com.neurotube.app.ui.components.settings.SettingsPage
 import com.neurotube.app.ui.components.settings.notice
+import com.neurotube.app.ui.components.settings.switch
 import com.neurotube.app.ui.components.shared.FlowActionButton
 import com.neurotube.app.ui.components.shared.FlowAlertDialog
 import com.neurotube.app.ui.components.shared.FlowMorphingPortrait
 import com.neurotube.app.ui.components.shared.FlowNavRow
+import com.neurotube.app.ui.components.shared.FlowProgressBanner
 import com.neurotube.app.ui.screens.settings.index.HomeIndex
 
 private val PortraitSize = 72.dp
@@ -65,6 +66,7 @@ internal fun YouTubeAccountScreen(
     val account by viewModel.account.collectAsStateWithLifecycle()
     val signInState by viewModel.signInState.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
+    val autoImportEnabled by viewModel.autoImportEnabled.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
 
@@ -101,6 +103,16 @@ internal fun YouTubeAccountScreen(
         item("account.status") {
             AccountStatus(account = account, working = signInState == YouTubeSignInState.Working)
         }
+        (importState as? AccountImportState.Running)?.let { running ->
+            item("account.import.progress") {
+                FlowProgressBanner(
+                    headline = stringResource(running.step.titleRes()),
+                    current = running.current,
+                    total = running.total,
+                    note = stringResource(R.string.youtube_account_import_running_note),
+                )
+            }
+        }
         group(key = "account.actions") {
             if (account == null) {
                 signInRow(
@@ -111,6 +123,10 @@ internal fun YouTubeAccountScreen(
                 importRow(
                     state = importState,
                     onClick = { viewModel.importLibrary() },
+                )
+                autoImportRow(
+                    checked = autoImportEnabled,
+                    onCheckedChange = viewModel::setAutoImportEnabled,
                 )
                 signOutRow(onClick = { confirmSignOut = true })
             }
@@ -246,7 +262,7 @@ private fun SettingsGroupScope.importRow(
         title = stringResource(R.string.youtube_account_import_title),
         supportingText =
             running
-                ?.let { stringResource(importStepText(it.step)) }
+                ?.let { stringResource(it.step.titleRes()) }
                 ?: stringResource(R.string.youtube_account_import_subtitle),
         onClick = onClick,
         enabled = running == null,
@@ -255,18 +271,15 @@ private fun SettingsGroupScope.importRow(
     )
 }
 
-@StringRes
-private fun importStepText(step: AccountImportStep): Int =
-    when (step) {
-        AccountImportStep.SUBSCRIPTIONS -> R.string.youtube_account_import_step_subscriptions
-        AccountImportStep.ARTISTS -> R.string.youtube_account_import_step_artists
-        AccountImportStep.LIKED_SONGS -> R.string.youtube_account_import_step_liked_songs
-        AccountImportStep.PLAYLISTS -> R.string.youtube_account_import_step_playlists
-        AccountImportStep.ALBUMS -> R.string.youtube_account_import_step_albums
-        AccountImportStep.VIDEO_PLAYLISTS -> R.string.youtube_account_import_step_video_playlists
-        AccountImportStep.WATCH_LATER -> R.string.youtube_account_import_step_watch_later
-        AccountImportStep.HISTORY -> R.string.youtube_account_import_step_history
-    }
+/** The switch that decides whether signing in brings the library in on its own. */
+private fun SettingsGroupScope.autoImportRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) = switch(
+    entry = HomeIndex.accountAutoImport,
+    checked = checked,
+    onCheckedChange = onCheckedChange,
+)
 
 @Composable
 private fun importSummary(report: AccountImportReport): String =

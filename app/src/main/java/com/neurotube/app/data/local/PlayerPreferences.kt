@@ -261,6 +261,10 @@ class PlayerPreferences(
         val NOTIF_UPDATES_ENABLED = booleanPreferencesKey("notif_updates_enabled")
         val NOTIF_GENERAL_ENABLED = booleanPreferencesKey("notif_general_enabled")
 
+        // Account library: import the signed-in account's library automatically after sign-in.
+        val ACCOUNT_AUTO_IMPORT_ENABLED = booleanPreferencesKey("account_auto_import_enabled")
+        val ACCOUNT_AUTO_IMPORT_LAST_ACCOUNT = stringPreferencesKey("account_auto_import_last_account")
+
         // Overlay Controls preferences
         val OVERLAY_CAST_ENABLED = booleanPreferencesKey("overlay_cast_enabled")
         val OVERLAY_CC_ENABLED = booleanPreferencesKey("overlay_cc_enabled")
@@ -1702,6 +1706,31 @@ class PlayerPreferences(
     suspend fun setNotifNewVideosEnabled(enabled: Boolean) {
         context.playerPreferencesDataStore.edit { preferences ->
             preferences[Keys.NOTIF_NEW_VIDEOS_ENABLED] = enabled
+        }
+    }
+
+    /**
+     * Whether a signed-in YouTube account's library is brought in automatically once, right after
+     * sign-in. On by default; the account page can turn it off and import by hand instead.
+     */
+    val accountAutoImportEnabled: Flow<Boolean> =
+        context.playerPreferencesDataStore.data
+            .map { preferences -> preferences[Keys.ACCOUNT_AUTO_IMPORT_ENABLED] ?: true }
+
+    suspend fun setAccountAutoImportEnabled(enabled: Boolean) {
+        context.playerPreferencesDataStore.edit { preferences ->
+            preferences[Keys.ACCOUNT_AUTO_IMPORT_ENABLED] = enabled
+        }
+    }
+
+    /** The account id the last automatic import ran for, so a different sign-in imports again. */
+    val accountAutoImportLastAccount: Flow<String?> =
+        context.playerPreferencesDataStore.data
+            .map { preferences -> preferences[Keys.ACCOUNT_AUTO_IMPORT_LAST_ACCOUNT] }
+
+    suspend fun setAccountAutoImportLastAccount(accountId: String) {
+        context.playerPreferencesDataStore.edit { preferences ->
+            preferences[Keys.ACCOUNT_AUTO_IMPORT_LAST_ACCOUNT] = accountId
         }
     }
 

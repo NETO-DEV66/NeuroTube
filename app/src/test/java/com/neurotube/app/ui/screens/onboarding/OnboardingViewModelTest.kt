@@ -2,6 +2,8 @@ package com.neurotube.app.ui.screens.onboarding
 
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
+import com.neurotube.app.account.AccountImportState
+import com.neurotube.app.account.AccountLibraryImportCoordinator
 import com.neurotube.app.data.backup.BackupCoordinator
 import com.neurotube.app.data.backup.BackupOperation
 import com.neurotube.app.data.backup.ImportKind
@@ -40,6 +42,7 @@ class OnboardingViewModelTest {
     private val channelSearch: ChannelSearch = mockk()
     private val completer: OnboardingCompleter = mockk()
     private val preferences: PlayerPreferences = mockk(relaxed = true)
+    private val accountImport: AccountLibraryImportCoordinator = mockk(relaxed = true)
     private val channel = Channel(id = "UCabc", name = "Circuit Bench", thumbnailUrl = "https://t", subscriberCount = 10)
 
     @Before
@@ -51,6 +54,7 @@ class OnboardingViewModelTest {
         coEvery { channelSearch.search(any()) } returns listOf(channel)
         coEvery { completer.complete(any()) } returns Unit
         every { preferences.notifNewVideosEnabled } returns flowOf(true)
+        every { accountImport.state } returns MutableStateFlow<AccountImportState>(AccountImportState.Idle)
     }
 
     @After
@@ -65,6 +69,7 @@ class OnboardingViewModelTest {
             completer,
             preferences,
             mockk(relaxed = true),
+            accountImport,
             mockk(relaxed = true),
             mockk(relaxed = true),
         )

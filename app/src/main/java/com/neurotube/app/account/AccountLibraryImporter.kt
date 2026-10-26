@@ -2,6 +2,8 @@ package com.neurotube.app.account
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.StringRes
+import com.neurotube.app.R
 import com.neurotube.app.data.engagement.FeedInvalidationBus
 import com.neurotube.app.data.local.LikedVideosRepository
 import com.neurotube.app.data.local.PlaylistRepository
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -59,12 +62,33 @@ enum class AccountImportStep {
     HISTORY,
 }
 
+/** The string that names one part of an import, shared by the page and the progress notification. */
+@StringRes
+internal fun AccountImportStep.titleRes(): Int =
+    when (this) {
+        AccountImportStep.SUBSCRIPTIONS -> R.string.youtube_account_import_step_subscriptions
+        AccountImportStep.ARTISTS -> R.string.youtube_account_import_step_artists
+        AccountImportStep.LIKED_SONGS -> R.string.youtube_account_import_step_liked_songs
+        AccountImportStep.PLAYLISTS -> R.string.youtube_account_import_step_playlists
+        AccountImportStep.ALBUMS -> R.string.youtube_account_import_step_albums
+        AccountImportStep.VIDEO_PLAYLISTS -> R.string.youtube_account_import_step_video_playlists
+        AccountImportStep.WATCH_LATER -> R.string.youtube_account_import_step_watch_later
+        AccountImportStep.HISTORY -> R.string.youtube_account_import_step_history
+    }
+
 /** Progress through an import, so the screen can say what it is doing. */
 sealed interface AccountImportState {
     data object Idle : AccountImportState
 
+    /**
+     * A part is running. [current]/[total] count the items of the parts that save one by one
+     * (playlists, albums); they are 0/0 for the parts that are a single bulk write, which keeps the
+     * bar indeterminate rather than inventing a denominator.
+     */
     data class Running(
         val step: AccountImportStep,
+        val current: Int = 0,
+        val total: Int = 0,
     ) : AccountImportState
 
     data class Done(
@@ -94,15 +118,16 @@ class AccountLibraryImport
         private val viewHistory: ViewHistory,
     ) {
         /**
-         * Reads the account's library and stores it. [onStep] is called before each part, and the
-         * report counts what each part added.
+         * Reads the account's library and stores it. [onProgress] is called as each part begins and,
+         * for the parts that save items one by one, again as each item is written; the report counts
+         * what each part added.
          */
-        suspend fun run(onStep: (AccountImportStep) -> Unit = {}): AccountImportReport {
+        suspend fun run(onProgress: (AccountImportState.Running) -> Unit = {}): AccountImportReport {
             var report = AccountImportReport()
             val steps = mutableListOf<ImportStepDiagnostic>()
             ImportDiagnostics.begin()
             try {
-                onStep(AccountImportStep.SUBSCRIPTIONS)
+                onProgress(AccountImportState.Running(AccountImportStep.SUBSCRIPTIONS))
                 val channels = fetchPart(AccountImportStep.SUBSCRIPTIONS, steps) { fetchSubscriptions() }
                 if (channels.isNotEmpty()) {
                     runCatching { subscriptions.subscribeAll(channels.toSubscribedChannels()) }
@@ -110,7 +135,7 @@ class AccountLibraryImport
                         .onFailure { Log.w(TAG, "Importing channels failed", it) }
                 }
 
-                onStep(AccountImportStep.ARTISTS)
+                onProgress(AccountImportState.Running(AccountImportStep.ARTISTS))
                 val artists = fetchPart(AccountImportStep.ARTISTS, steps) { fetchLibrary(LIBRARY_ARTISTS) }
                 if (artists.isNotEmpty()) {
                     runCatching {
@@ -121,7 +146,7 @@ class AccountLibraryImport
                         .onFailure { Log.w(TAG, "Importing artists failed", it) }
                 }
 
-                onStep(AccountImportStep.LIKED_SONGS)
+                onProgress(AccountImportState.Running(AccountImportStep.LIKED_SONGS))
                 val songs = fetchPart(AccountImportStep.LIKED_SONGS, steps) { fetchLibrary(LIBRARY_LIKED_SONGS) }
                 if (songs.isNotEmpty()) {
                     runCatching { likedVideos.importLikes(songs.toLikedSongs(System.currentTimeMillis())) }
@@ -129,21 +154,22 @@ class AccountLibraryImport
                         .onFailure { Log.w(TAG, "Importing liked songs failed", it) }
                 }
 
-                onStep(AccountImportStep.PLAYLISTS)
+                onProgress(AccountImportState.Running(AccountImportStep.PLAYLISTS))
                 val collections = fetchPart(AccountImportStep.PLAYLISTS, steps) { fetchLibrary(LIBRARY_PLAYLISTS) }
                 if (collections.isNotEmpty()) {
-                    val saved = saveCollections(collections.toSavedMusicCollections())
+                    val saved =
+                        saveCollections(collections.toSavedMusicCollections(), AccountImportStep.PLAYLISTS, onProgress)
                     report = report.copy(playlists = saved)
                 }
 
-                onStep(AccountImportStep.ALBUMS)
+                onProgress(AccountImportState.Running(AccountImportStep.ALBUMS))
                 val albums = fetchPart(AccountImportStep.ALBUMS, steps) { fetchLibrary(LIBRARY_ALBUMS) }
                 if (albums.isNotEmpty()) {
-                    val saved = saveCollections(albums.toSavedMusicCollections())
+                    val saved = saveCollections(albums.toSavedMusicCollections(), AccountImportStep.ALBUMS, onProgress)
                     report = report.copy(albums = saved)
                 }
 
-                onStep(AccountImportStep.VIDEO_PLAYLISTS)
+                onProgress(AccountImportState.Running(AccountImportStep.VIDEO_PLAYLISTS))
                 val videoPlaylists =
                     fetchPart(AccountImportStep.VIDEO_PLAYLISTS, steps) { fetchVideoPlaylists() }
                 if (videoPlaylists.isNotEmpty()) {
@@ -152,7 +178,7 @@ class AccountLibraryImport
                         .onFailure { Log.w(TAG, "Importing video playlists failed", it) }
                 }
 
-                onStep(AccountImportStep.WATCH_LATER)
+                onProgress(AccountImportState.Running(AccountImportStep.WATCH_LATER))
                 val watchLater = fetchPart(AccountImportStep.WATCH_LATER, steps) { fetchWatchLater() }
                 if (watchLater.isNotEmpty()) {
                     runCatching { watchLater.forEach { video -> musicPlaylists.addToWatchLater(video) } }
@@ -160,7 +186,7 @@ class AccountLibraryImport
                         .onFailure { Log.w(TAG, "Importing Watch Later failed", it) }
                 }
 
-                onStep(AccountImportStep.HISTORY)
+                onProgress(AccountImportState.Running(AccountImportStep.HISTORY))
                 val watched = fetchPart(AccountImportStep.HISTORY, steps) { fetchWatchHistory() }
                 if (watched.isNotEmpty()) {
                     runCatching {
@@ -361,25 +387,40 @@ class AccountLibraryImport
 
         /**
          * Saves each collection with its songs, so the library can play it offline. Collections are
-         * fetched a few at a time, and one failing does not stop the rest. Returns how many were saved.
+         * fetched a few at a time, one failing does not stop the rest, and [onProgress] is called as
+         * each one lands so the bar moves while the work is happening rather than at the end.
          */
-        private suspend fun saveCollections(collections: List<AccountMusicCollection>): Int {
+        private suspend fun saveCollections(
+            collections: List<AccountMusicCollection>,
+            step: AccountImportStep,
+            onProgress: (AccountImportState.Running) -> Unit,
+        ): Int {
             val gate = Semaphore(PARALLELISM)
+            val total = collections.size
+            val done = AtomicInteger(0)
             val saved =
                 coroutineScope {
                     collections
                         .map { collection ->
                             async {
                                 gate.withPermit {
-                                    val details = fetchCollection(collection) ?: return@withPermit false
-                                    runCatching { musicPlaylists.saveMusicCollection(details) }
-                                        .onFailure { Log.w(TAG, "Saving ${collection.id} failed", it) }
-                                        .isSuccess
+                                    val ok =
+                                        runCatching { saveCollection(collection) }
+                                            .onFailure { Log.w(TAG, "Saving ${collection.id} failed", it) }
+                                            .getOrDefault(false)
+                                    onProgress(AccountImportState.Running(step, done.incrementAndGet(), total))
+                                    ok
                                 }
                             }
                         }.awaitAll()
                 }
             return saved.count { it }
+        }
+
+        private suspend fun saveCollection(collection: AccountMusicCollection): Boolean {
+            val details = fetchCollection(collection) ?: return false
+            musicPlaylists.saveMusicCollection(details)
+            return true
         }
 
         /**

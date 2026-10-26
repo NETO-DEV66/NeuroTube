@@ -35,7 +35,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.neurotube.app.R
+import com.neurotube.app.account.AccountImportState
 import com.neurotube.app.account.YouTubeAccount
+import com.neurotube.app.account.titleRes
 import com.neurotube.app.data.backup.BackupOperation
 import com.neurotube.app.data.backup.ImportKind
 import com.neurotube.app.data.backup.ImportSource
@@ -62,6 +64,7 @@ private const val WIDE_COLUMNS = 3
 internal fun ImportStep(
     header: LazyListScope.() -> Unit,
     importOperation: BackupOperation,
+    accountImportState: AccountImportState,
     importedSources: Set<ImportSource>,
     onImport: (ImportKind) -> Unit,
     account: YouTubeAccount?,
@@ -88,6 +91,16 @@ internal fun ImportStep(
                         current = running.current,
                         total = running.total,
                         note = stringResource(R.string.import_running_background),
+                    )
+                }
+            }
+            (accountImportState as? AccountImportState.Running)?.let { running ->
+                item(key = "account.progress") {
+                    FlowProgressBanner(
+                        headline = stringResource(running.step.titleRes()),
+                        current = running.current,
+                        total = running.total,
+                        note = stringResource(R.string.youtube_account_import_running_note),
                     )
                 }
             }

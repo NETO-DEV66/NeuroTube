@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neurotube.app.account.AccountImportState
 import com.neurotube.app.data.backup.BackupOperation
 import com.neurotube.app.data.backup.ImportKind
 import com.neurotube.app.ui.components.shared.FlowMaxContentWidth
@@ -180,9 +181,11 @@ private fun StepBody(
         OnboardingStep.IMPORT -> {
             val account by actions.viewModel.account.collectAsStateWithLifecycle()
             val signInState by actions.viewModel.signInState.collectAsStateWithLifecycle()
+            val accountImportState by actions.viewModel.accountImportState.collectAsStateWithLifecycle()
             ImportStep(
                 header = header,
                 importOperation = importOperation,
+                accountImportState = accountImportState,
                 importedSources = state.importedSources,
                 onImport = actions.onPick,
                 account = account,

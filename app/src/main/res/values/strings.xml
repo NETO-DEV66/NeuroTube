@@ -4322,4 +4322,9 @@
     <string name="youtube_account_import_done_body">Subscriptions: %1$d\nArtists: %2$d\nLiked songs: %3$d\nMusic playlists: %4$d\nAlbums: %5$d\nVideo playlists: %6$d\nWatch Later: %7$d\nWatch history: %8$d</string>
     <string name="youtube_account_import_failed">Import failed. Check your connection and try again.</string>
     <string name="youtube_account_import_partial_title">Some parts could not be imported</string>
+    <string name="youtube_account_import_running_note">You can leave this screen. The import keeps running.</string>
+    <string name="youtube_account_import_auto_title">Import library automatically</string>
+    <string name="youtube_account_import_auto_summary">Bring your subscriptions, likes and playlists in automatically once you sign in</string>
+    <string name="youtube_account_import_auto_keywords">automatic, auto, library, import, sign in, sync</string>
+    <string name="youtube_account_import_notification_label">your YouTube library</string>
 </resources>

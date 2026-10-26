@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neurotube.app.account.AccountImportState
+import com.neurotube.app.account.AccountLibraryImportCoordinator
 import com.neurotube.app.account.YouTubeAccount
 import com.neurotube.app.account.YouTubeAccountManager
 import com.neurotube.app.data.backup.BackupCoordinator
@@ -58,6 +60,7 @@ class OnboardingViewModel
         private val completer: OnboardingCompleter,
         private val preferences: PlayerPreferences,
         private val accountManager: YouTubeAccountManager,
+        private val accountImport: AccountLibraryImportCoordinator,
         favouriteArtists: FavouriteArtistsStore,
         artistCatalog: FavouriteArtistCatalog,
     ) : ViewModel() {
@@ -65,6 +68,9 @@ class OnboardingViewModel
         val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
 
         val importOperation: StateFlow<BackupOperation> = backup.operation
+
+        /** The account library import the process shares, so this step shows it live. */
+        val accountImportState: StateFlow<AccountImportState> = accountImport.state
 
         val account: StateFlow<YouTubeAccount?> = accountManager.account
 

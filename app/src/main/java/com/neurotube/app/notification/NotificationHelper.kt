@@ -62,6 +62,14 @@ object NotificationHelper {
     const val NOTIFICATION_REMINDER = 5000
     const val NOTIFICATION_IMPORT_PROGRESS = 6001
     const val NOTIFICATION_IMPORT_COMPLETE = 6002
+
+    /**
+     * The account library import is its own job with its own notification, so it never overwrites a
+     * backup import's progress if both are somehow in flight.
+     */
+    const val NOTIFICATION_ACCOUNT_IMPORT_PROGRESS = 6003
+    const val NOTIFICATION_ACCOUNT_IMPORT_COMPLETE = 6004
+
     private const val NOTIFICATION_BITMAP_MAX_PX = 512
 
     private var channelsCreated = false
@@ -235,6 +243,7 @@ object NotificationHelper {
         label: String,
         current: Int,
         total: Int,
+        notificationId: Int = NOTIFICATION_IMPORT_PROGRESS,
     ) {
         if (!hasNotificationPermission(context)) return
         val contentText = if (total > 0) "$current / $total" else "Starting…"
@@ -254,7 +263,7 @@ object NotificationHelper {
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_IMPORT_PROGRESS, builder.build())
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
     /** Replace the progress notification with a one-shot completion notification. */
@@ -263,10 +272,12 @@ object NotificationHelper {
         label: String,
         count: Int,
         message: String? = null,
+        progressId: Int = NOTIFICATION_IMPORT_PROGRESS,
+        completionId: Int = NOTIFICATION_IMPORT_COMPLETE,
     ) {
         if (!hasNotificationPermission(context)) return
         // cancel progress first
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_IMPORT_PROGRESS)
+        NotificationManagerCompat.from(context).cancel(progressId)
         val builder =
             NotificationCompat
                 .Builder(context, CHANNEL_IMPORTS)
@@ -275,12 +286,15 @@ object NotificationHelper {
                 .setContentText(message ?: context.getString(R.string.notification_imported, count, label.lowercase()))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_IMPORT_COMPLETE, builder.build())
+        NotificationManagerCompat.from(context).notify(completionId, builder.build())
     }
 
     /** Cancel the ongoing import progress notification (e.g. on error). */
-    fun cancelImportNotification(context: Context) {
-        NotificationManagerCompat.from(context).cancel(NOTIFICATION_IMPORT_PROGRESS)
+    fun cancelImportNotification(
+        context: Context,
+        notificationId: Int = NOTIFICATION_IMPORT_PROGRESS,
+    ) {
+        NotificationManagerCompat.from(context).cancel(notificationId)
     }
 
     // ========== DOWNLOAD NOTIFICATIONS ==========
