@@ -3,6 +3,7 @@ package com.neurotube.app.data.local
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.dao.WatchHistoryDao
 import com.neurotube.app.data.local.entity.WatchHistoryEntity
 import kotlinx.coroutines.Dispatchers
@@ -97,7 +98,7 @@ class WatchHistoryPagingTest {
     fun recentVideoHistoryIsBounded() {
         seed(5_000)
 
-        val recent = runBlocking { dao.getRecentVideoHistory(limit = 40, includeShorts = false) }
+        val recent = runBlocking { dao.getRecentVideoHistory(AccountScope.GUEST, limit = 40, includeShorts = false) }
 
         assertEquals(40, recent.size)
         assertEquals(true, recent.none { it.isShort || it.isMusic || it.isLocal })
