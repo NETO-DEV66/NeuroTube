@@ -4327,4 +4327,14 @@
     <string name="youtube_account_import_auto_summary">Bring your subscriptions, likes and playlists in automatically once you sign in</string>
     <string name="youtube_account_import_auto_keywords">automatic, auto, library, import, sign in, sync</string>
     <string name="youtube_account_import_notification_label">your YouTube library</string>
+    <string name="youtube_account_section_accounts">Linked accounts</string>
+    <string name="youtube_account_add">Add account</string>
+    <string name="youtube_account_add_subtitle">Sign in with another Google account to keep its subscriptions, likes and playlists separate</string>
+    <string name="youtube_account_active">Active</string>
+    <string name="youtube_account_switch">Use this account</string>
+    <string name="youtube_account_switching">Switching account…</string>
+    <string name="youtube_account_remove">Remove account</string>
+    <string name="youtube_account_remove_confirm">Remove %1$s?</string>
+    <string name="youtube_account_remove_confirm_body">NeuroTube will forget this account\'s session and use another. Its library stays on this device and comes back if you sign in again. Your YouTube account itself is not affected.</string>
+    <string name="youtube_account_limit">Up to %1$d accounts can be linked. Remove one to add another.</string>
 </resources>

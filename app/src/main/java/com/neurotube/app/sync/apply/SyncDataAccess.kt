@@ -1,7 +1,7 @@
 package com.neurotube.app.sync.apply
 
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.audio.eq.EqStateJson
 import com.neurotube.app.data.audio.eq.EqualizerRepository
 import com.neurotube.app.data.local.LikedVideosRepository
@@ -28,6 +28,7 @@ import com.neurotube.app.sync.mapping.SettingsMapper
 import com.neurotube.app.sync.mapping.SubscribedChannelsMapper
 import com.neurotube.app.sync.mapping.SubscriptionsMapper
 import com.neurotube.app.sync.mapping.WatchHistoryMapper
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import java.util.UUID
 import javax.inject.Inject
@@ -55,17 +56,23 @@ class SyncDataAccess
         private val likedVideos: LikedVideosRepository by lazy { LikedVideosRepository.getInstance(context) }
         private val playerPrefs: PlayerPreferences by lazy { PlayerPreferences(context) }
 
+        /**
+         * The library a sync pass reads and writes. Sync moves one library at a time, so it follows
+         * the active account rather than merging every account's data into one stream.
+         */
+        private val accountId: String get() = AccountScope.activeId
+
         // --- watch history ---
 
         suspend fun readWatchHistory(node: String): List<CanonicalWatchHistory> =
             watchHistoryDao
-                .readHistory(isLocal = 0) // device-local media files don't sync
+                .readHistory(accountId, isLocal = 0) // device-local media files don't sync
                 .map { WatchHistoryMapper.toCanonical(it, node) }
 
         suspend fun writeWatchHistory(merged: List<CanonicalWatchHistory>) {
-            val toUpsert = merged.filter { !it.deleted }.map { WatchHistoryMapper.toEntity(it) }
+            val toUpsert = merged.filter { !it.deleted }.map { WatchHistoryMapper.toEntity(it, accountId) }
             if (toUpsert.isNotEmpty()) watchHistoryDao.upsertAll(toUpsert)
-            for (d in merged) if (d.deleted) watchHistoryDao.deleteEntry(d.videoId)
+            for (d in merged) if (d.deleted) watchHistoryDao.deleteEntry(d.videoId, accountId)
         }
 
         // --- likes (export is liked-only; apply handles all 3 states) ---
@@ -151,12 +158,12 @@ class SyncDataAccess
         // --- subscription groups ---
 
         suspend fun readSubscriptions(hlc: String): List<CanonicalSubscriptionGroup> =
-            subscriptionGroupDao.getAllGroupsOnce().map { SubscriptionsMapper.toCanonical(it, hlc) }
+            subscriptionGroupDao.getAllGroupsOnce(accountId).map { SubscriptionsMapper.toCanonical(it, hlc) }
 
         suspend fun writeSubscriptions(merged: List<CanonicalSubscriptionGroup>) {
-            val toUpsert = merged.filter { !it.deleted }.map { SubscriptionsMapper.toEntity(it) }
+            val toUpsert = merged.filter { !it.deleted }.map { SubscriptionsMapper.toEntity(it, accountId) }
             if (toUpsert.isNotEmpty()) subscriptionGroupDao.insertAll(toUpsert)
-            for (g in merged) if (g.deleted) subscriptionGroupDao.deleteGroup(g.name)
+            for (g in merged) if (g.deleted) subscriptionGroupDao.deleteGroup(g.name, accountId)
         }
 
         // --- notes ---
@@ -212,8 +219,8 @@ class SyncDataAccess
         // --- playlists ---
 
         suspend fun readPlaylists(hlc: String): List<CanonicalPlaylist> {
-            val playlists = playlistDao.getAllPlaylists().first()
-            val refsByPlaylist = playlistDao.getAllPlaylistVideoCrossRefs().groupBy { it.playlistId }
+            val playlists = playlistDao.getAllPlaylists(accountId).first()
+            val refsByPlaylist = playlistDao.getAllPlaylistVideoCrossRefs(accountId).groupBy { it.playlistId }
             val videosById = videoDao.getAllVideos().associateBy { it.id }
             return playlists.map { p ->
                 val items =
@@ -225,10 +232,10 @@ class SyncDataAccess
         }
 
         suspend fun writePlaylists(merged: List<CanonicalPlaylist>) {
-            val locals = playlistDao.getAllPlaylists().first()
+            val locals = playlistDao.getAllPlaylists(accountId).first()
             val bySyncId = locals.associateBy { it.syncId ?: it.id }
             val byYoutubeId = locals.filter { !it.isUserCreated }.associateBy { it.id }
-            val allRefs = playlistDao.getAllPlaylistVideoCrossRefs().groupBy { it.playlistId }
+            val allRefs = playlistDao.getAllPlaylistVideoCrossRefs(accountId).groupBy { it.playlistId }
 
             for (cp in merged) {
                 val localId = resolveLocalId(cp, bySyncId, byYoutubeId)
@@ -236,19 +243,19 @@ class SyncDataAccess
                     if (localId != null && localId != PlaylistMapper.WATCH_LATER_ID &&
                         localId != PlaylistMapper.SAVED_SHORTS_ID
                     ) {
-                        playlistDao.deletePlaylist(localId)
+                        playlistDao.deletePlaylist(localId, accountId)
                     }
                     continue
                 }
                 val targetId = localId ?: newLocalId(cp)
-                playlistDao.insertPlaylist(PlaylistMapper.toPlaylistEntity(cp, targetId))
+                playlistDao.insertPlaylist(PlaylistMapper.toPlaylistEntity(cp, targetId, accountId))
                 videoDao.insertVideosOrIgnore(PlaylistMapper.toVideoEntities(cp))
 
-                val mergedRefs = PlaylistMapper.toCrossRefs(cp, targetId)
+                val mergedRefs = PlaylistMapper.toCrossRefs(cp, targetId, accountId)
                 val mergedVids = mergedRefs.map { it.videoId }.toSet()
                 // Remove refs no longer present, then upsert the merged set (positions updated).
                 for (ref in allRefs[targetId].orEmpty()) {
-                    if (ref.videoId !in mergedVids) playlistDao.removeVideoFromPlaylist(targetId, ref.videoId)
+                    if (ref.videoId !in mergedVids) playlistDao.removeVideoFromPlaylist(targetId, ref.videoId, accountId)
                 }
                 for (ref in mergedRefs) playlistDao.insertPlaylistVideoCrossRef(ref)
             }

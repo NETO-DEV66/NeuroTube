@@ -2,11 +2,12 @@ package com.neurotube.app.data.stats
 
 import android.content.Context
 import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.PrivacyGate
 import com.neurotube.app.data.local.dao.WatchHistoryDao
 import com.neurotube.app.data.model.Video
 import com.neurotube.app.data.recommendation.FlowNeuroEngine
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -144,7 +145,9 @@ class VideoStatsRecorder
                         seedChannels = loaded.knownKeys.toList(),
                     ).toLedger()
                 if (loaded.months.isEmpty() && loaded.knownKeys.isEmpty()) {
-                    ledger.seedChannels.addAll(runCatching { watchHistoryDao.getWatchedChannelIds() }.getOrDefault(emptyList()))
+                    ledger.seedChannels.addAll(
+                        runCatching { watchHistoryDao.getWatchedChannelIds(AccountScope.activeId) }.getOrDefault(emptyList()),
+                    )
                     ledger.rebuildKnownChannels()
                 }
                 initialized = true

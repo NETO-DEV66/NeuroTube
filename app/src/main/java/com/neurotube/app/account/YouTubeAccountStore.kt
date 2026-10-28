@@ -44,11 +44,28 @@ data class YouTubeAccount(
 )
 
 /**
- * Encrypted-at-rest store for the YouTube session cookie.
+ * Every linked account, plus which one the app is currently using.
+ *
+ * [activeId] is a [YouTubeAccount.identity] digest rather than the address itself, because
+ * preferences and this list are compared by identity, never by name.
+ */
+data class StoredAccounts(
+    val accounts: List<YouTubeAccount>,
+    val activeId: String?,
+) {
+    fun active(): YouTubeAccount? = accounts.firstOrNull { it.identity() == activeId }
+}
+
+/**
+ * Encrypted-at-rest store for the linked YouTube sessions.
  *
  * Same scheme as `DiscordTokenStore`: AES/GCM with a key that lives in the Android keystore, written
- * through [AtomicFile] in `noBackupFilesDir` so it is never swept into a cloud backup. A cookie that
+ * through [AtomicFile] in `noBackupFilesDir` so it is never swept into a cloud backup. A file that
  * cannot be decrypted (key rotated, keystore reset) is dropped rather than surfaced as an error.
+ *
+ * The file holds every linked account, not just one, so switching accounts is a matter of moving
+ * [StoredAccounts.activeId] rather than signing in again. A file written by the older single-account
+ * build is read as a one-entry list by [YouTubeAccountCodec].
  */
 class YouTubeAccountStore(
     context: Context,
@@ -57,8 +74,8 @@ class YouTubeAccountStore(
         AtomicFile(File(context.applicationContext.noBackupFilesDir, FILE_NAME))
 
     @Synchronized
-    fun save(account: YouTubeAccount) {
-        val plaintext = YouTubeAccountCodec.encode(account)
+    fun save(stored: StoredAccounts) {
+        val plaintext = YouTubeAccountCodec.encode(stored)
 
         val cipher =
             Cipher.getInstance(TRANSFORMATION).apply {
@@ -83,8 +100,8 @@ class YouTubeAccountStore(
     }
 
     @Synchronized
-    fun load(): YouTubeAccount? {
-        if (!storageFile.baseFile.exists()) return null
+    fun load(): StoredAccounts {
+        if (!storageFile.baseFile.exists()) return StoredAccounts(emptyList(), null)
 
         return runCatching {
             val payload =
@@ -107,7 +124,7 @@ class YouTubeAccountStore(
             YouTubeAccountCodec.decode(plaintext)
         }.getOrElse {
             clear()
-            null
+            StoredAccounts(emptyList(), null)
         }
     }
 

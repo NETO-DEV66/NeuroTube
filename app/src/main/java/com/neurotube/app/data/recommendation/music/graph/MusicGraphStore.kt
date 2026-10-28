@@ -59,6 +59,23 @@ class MusicGraphStore
         private val trimmed = AtomicBoolean(false)
         private val trimLock = Mutex()
 
+        /**
+         * Empties the graph and re-arms trimming. Called when the library moves to another account,
+         * because the edges were crawled from the previous owner's listening and would otherwise
+         * keep recommending that account's music.
+         */
+        suspend fun clear() =
+            withContext(Dispatchers.IO) {
+                // Each table is dropped on its own: a failure on one must not leave the others
+                // holding the previous account's graph, and trimming is re-armed either way.
+                runCatching { dao.clearEdges() }
+                runCatching { dao.clearTracks() }
+                runCatching { dao.clearArtists() }
+                runCatching { dao.clearAlbums() }
+                runCatching { dao.clearPlaylists() }
+                trimmed.set(false)
+            }
+
         suspend fun relatedFor(seedId: String): RelatedMusic? =
             withContext(Dispatchers.IO) {
                 ensureTrimmed()

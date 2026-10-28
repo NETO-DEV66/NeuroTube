@@ -35,6 +35,15 @@ class YouTubeAccountViewModel
     ) : ViewModel() {
         val account: StateFlow<YouTubeAccount?> = manager.account
 
+        /** Every linked account, oldest first. */
+        val accounts: StateFlow<List<YouTubeAccount>> = manager.accounts
+
+        /** How many accounts can be linked at once. */
+        val maxAccounts: Int get() = manager.maxAccounts
+
+        /** True once no further account can be linked. */
+        val atCapacity: Boolean get() = manager.atCapacity
+
         private val _signInState = MutableStateFlow<YouTubeSignInState>(YouTubeSignInState.Idle)
         val signInState: StateFlow<YouTubeSignInState> = _signInState.asStateFlow()
 
@@ -63,6 +72,26 @@ class YouTubeAccountViewModel
         fun signOut() {
             viewModelScope.launch { manager.signOut() }
         }
+
+        /** Makes [account] the active one; the library the app reads changes with it. */
+        fun switchTo(account: YouTubeAccount) {
+            val id = manager.identityOf(account)
+            if (id.isEmpty() || _switchingTo.value != null) return
+            _switchingTo.value = id
+            viewModelScope.launch {
+                manager.switchTo(id)
+                _switchingTo.value = null
+            }
+        }
+
+        /** Unlinks [account]. Its library stays on disk, so linking it again brings it back. */
+        fun remove(account: YouTubeAccount) {
+            viewModelScope.launch { manager.remove(manager.identityOf(account)) }
+        }
+
+        /** The account being switched to, so its card can show progress and block a second tap. */
+        private val _switchingTo = MutableStateFlow<String?>(null)
+        val switchingTo: StateFlow<String?> = _switchingTo.asStateFlow()
 
         /** Brings the signed-in account's library in, one part at a time. */
         fun importLibrary() {

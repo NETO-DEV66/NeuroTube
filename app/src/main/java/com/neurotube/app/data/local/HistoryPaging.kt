@@ -1,5 +1,6 @@
 package com.neurotube.app.data.local
 
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.dao.WatchHistoryDao
 import com.neurotube.app.data.local.dao.WatchProgress
 import com.neurotube.app.data.local.entity.WatchHistoryEntity
@@ -32,23 +33,25 @@ internal suspend fun <T> readAllPages(
 }
 
 internal suspend fun WatchHistoryDao.readHistory(
+    accountId: String = AccountScope.activeId,
     isMusic: Int = WatchHistoryDao.ANY,
     isLocal: Int = WatchHistoryDao.ANY,
 ): List<WatchHistoryEntity> =
     readAllPages(
         pageSize = HISTORY_PAGE_SIZE,
-        readPage = { before, after, limit -> getHistoryPage(isMusic, isLocal, before, after, limit) },
+        readPage = { before, after, limit -> getHistoryPage(accountId, isMusic, isLocal, before, after, limit) },
         timestamp = { it.timestamp },
         videoId = { it.videoId },
     )
 
 internal suspend fun WatchHistoryDao.readProgress(
+    accountId: String = AccountScope.activeId,
     isMusic: Int = WatchHistoryDao.ANY,
     isLocal: Int = WatchHistoryDao.ANY,
 ): List<WatchProgress> =
     readAllPages(
         pageSize = PROGRESS_PAGE_SIZE,
-        readPage = { before, after, limit -> getProgressPage(isMusic, isLocal, before, after, limit) },
+        readPage = { before, after, limit -> getProgressPage(accountId, isMusic, isLocal, before, after, limit) },
         timestamp = { it.timestamp },
         videoId = { it.videoId },
     )

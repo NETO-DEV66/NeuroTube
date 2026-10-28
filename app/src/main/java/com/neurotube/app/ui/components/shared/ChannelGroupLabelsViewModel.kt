@@ -9,13 +9,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.PlayerPreferences
 import com.neurotube.app.data.local.dao.SubscriptionGroupDao
 import com.neurotube.app.data.model.toUiModel
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -34,14 +36,17 @@ class ChannelGroupLabelsViewModel
     ) : ViewModel() {
         @OptIn(ExperimentalCoroutinesApi::class)
         val labels: StateFlow<ChannelGroupLabels> =
-            playerPreferences.showChannelGroupBadges
+            combine(
+                playerPreferences.showChannelGroupBadges.distinctUntilChanged(),
+                AccountScope.active,
+            ) { enabled, accountId -> enabled to accountId }
                 .distinctUntilChanged()
-                .flatMapLatest { enabled ->
+                .flatMapLatest { (enabled, accountId) ->
                     // With the preference off nothing observes the group table at all.
                     if (!enabled) {
                         flowOf(ChannelGroupLabels.Empty)
                     } else {
-                        subscriptionGroupDao.getAllGroups().map { entities ->
+                        subscriptionGroupDao.getAllGroups(accountId).map { entities ->
                             val byChannelId = mutableMapOf<String, String>()
                             entities
                                 .map { it.toUiModel() }

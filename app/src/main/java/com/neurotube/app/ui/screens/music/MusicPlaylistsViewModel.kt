@@ -5,9 +5,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neurotube.app.R
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.PlaylistRepository
 import com.neurotube.app.data.local.entity.DownloadCollectionKind
 import com.neurotube.app.data.local.entity.VideoEntity
@@ -20,6 +19,8 @@ import com.neurotube.app.data.music.model.toMusicTrack
 import com.neurotube.app.data.repository.YouTubeRepository
 import com.neurotube.app.data.video.BackgroundDownloadQueuer
 import com.neurotube.app.data.video.downloader.collection.CollectionSpec
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,7 +73,7 @@ class MusicPlaylistsViewModel
                             .getDatabase(context)
                     val videoDao = db.videoDao()
                     val playlistDao = db.playlistDao()
-                    val stubs = playlistDao.getMusicPlaylistStubVideos()
+                    val stubs = playlistDao.getMusicPlaylistStubVideos(AccountScope.activeId)
                     if (stubs.isNotEmpty()) {
                         Log.d("MusicPlaylistsVM", "Enriching ${stubs.size} music playlist stubs")
                         stubs.chunked(5).forEach { chunk ->
@@ -112,9 +113,10 @@ class MusicPlaylistsViewModel
 
         /** Seed a blank music playlist/album cover from its first track's thumbnail (post-enrichment). */
         private suspend fun recoverBlankAlbumCovers(playlistDao: com.neurotube.app.data.local.dao.PlaylistDao) {
-            playlistDao.getMusicPlaylistsMissingThumbnail().forEach { id ->
-                val thumb = playlistDao.getFirstVideoThumbnail(id)
-                if (!thumb.isNullOrBlank()) playlistDao.updatePlaylistThumbnail(id, thumb)
+            val accountId = AccountScope.activeId
+            playlistDao.getMusicPlaylistsMissingThumbnail(accountId).forEach { id ->
+                val thumb = playlistDao.getFirstVideoThumbnail(id, accountId)
+                if (!thumb.isNullOrBlank()) playlistDao.updatePlaylistThumbnail(id, accountId, thumb)
             }
         }
 

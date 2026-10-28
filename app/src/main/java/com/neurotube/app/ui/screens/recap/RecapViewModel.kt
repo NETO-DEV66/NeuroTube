@@ -3,7 +3,7 @@ package com.neurotube.app.ui.screens.recap
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.PlayerPreferences
 import com.neurotube.app.data.local.SearchHistoryRepository
 import com.neurotube.app.data.local.dao.ChannelVideoCount
@@ -19,6 +19,7 @@ import com.neurotube.app.data.stats.TrackAlbum
 import com.neurotube.app.data.stats.VideoStatsRecorder
 import com.neurotube.app.data.stats.VideoStatsSnapshot
 import com.neurotube.app.data.stats.withImages
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -139,7 +140,7 @@ class RecapViewModel
             if (historyLoaded) return _state.value.history
             historyLoaded = true
             return withContext(Dispatchers.IO) {
-                runCatching { watchHistoryDao.getChannelVideoCounts(HISTORY_CHANNELS) }.getOrDefault(emptyList())
+                runCatching { watchHistoryDao.getChannelVideoCounts(AccountScope.activeId, HISTORY_CHANNELS) }.getOrDefault(emptyList())
             }
         }
 

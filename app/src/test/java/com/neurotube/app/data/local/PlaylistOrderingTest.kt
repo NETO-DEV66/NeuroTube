@@ -20,8 +20,8 @@ class PlaylistOrderingTest {
 
     private val playlistDao =
         mockk<PlaylistDao>(relaxed = true).also { dao ->
-            coEvery { dao.getVideoIdsInPlaylist(any()) } answers { existingIds.toList() }
-            coEvery { dao.getMaxPlaylistPosition(any()) } answers { inserted.maxOfOrNull { it.position } }
+            coEvery { dao.getVideoIdsInPlaylist(any(), any()) } answers { existingIds.toList() }
+            coEvery { dao.getMaxPlaylistPosition(any(), any()) } answers { inserted.maxOfOrNull { it.position } }
             val crossRef = slot<PlaylistVideoCrossRef>()
             coEvery { dao.insertPlaylistVideoCrossRef(capture(crossRef)) } answers { inserted += crossRef.captured }
         }

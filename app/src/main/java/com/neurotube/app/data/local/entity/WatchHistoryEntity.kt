@@ -1,8 +1,9 @@
 package com.neurotube.app.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.VideoHistoryEntry
 import com.neurotube.app.data.model.Video
 
@@ -13,19 +14,23 @@ import com.neurotube.app.data.model.Video
  * 46 000 watched videos → ~370 000 entries in a single serialised protobuf
  * file that was fully deserialized on every read.  SQLite handles millions of
  * rows efficiently with proper indexing.
+ *
+ * The key is `(videoId, accountId)`: the same video watched under two accounts is two histories with
+ * two positions. A single-column key would let one account's progress overwrite the other's.
  */
 @Entity(
     tableName = "watch_history",
+    primaryKeys = ["videoId", "accountId"],
     indices = [
-        Index(value = ["videoId"], unique = true),
         Index(value = ["timestamp"]),
         Index(value = ["isMusic"]),
         Index(value = ["isShort"]),
         Index(value = ["isLocal"]),
+        Index(value = ["accountId"]),
     ],
 )
 data class WatchHistoryEntity(
-    @PrimaryKey val videoId: String,
+    val videoId: String,
     val position: Long,
     val duration: Long,
     val timestamp: Long,
@@ -36,6 +41,8 @@ data class WatchHistoryEntity(
     val isMusic: Boolean,
     val isShort: Boolean = false,
     val isLocal: Boolean = false,
+    /** The owning library; [AccountScope.GUEST] for the signed-out library. */
+    @ColumnInfo(defaultValue = "guest") val accountId: String = AccountScope.GUEST,
 ) {
     fun toDomain() =
         VideoHistoryEntry(

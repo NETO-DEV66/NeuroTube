@@ -265,6 +265,9 @@ class PlayerPreferences(
         val ACCOUNT_AUTO_IMPORT_ENABLED = booleanPreferencesKey("account_auto_import_enabled")
         val ACCOUNT_AUTO_IMPORT_LAST_ACCOUNT = stringPreferencesKey("account_auto_import_last_account")
 
+        /** Set once the pre-accounts library has been handed to the first account that was linked. */
+        val GUEST_LIBRARY_ADOPTED = booleanPreferencesKey("guest_library_adopted")
+
         // Overlay Controls preferences
         val OVERLAY_CAST_ENABLED = booleanPreferencesKey("overlay_cast_enabled")
         val OVERLAY_CC_ENABLED = booleanPreferencesKey("overlay_cc_enabled")
@@ -1731,6 +1734,20 @@ class PlayerPreferences(
     suspend fun setAccountAutoImportLastAccount(accountId: String) {
         context.playerPreferencesDataStore.edit { preferences ->
             preferences[Keys.ACCOUNT_AUTO_IMPORT_LAST_ACCOUNT] = accountId
+        }
+    }
+
+    /**
+     * Whether the library that predates multi-account support has already been handed to the first
+     * account that was linked. False until that happens, so an upgrade adopts exactly once.
+     */
+    val isGuestLibraryAdopted: Flow<Boolean> =
+        context.playerPreferencesDataStore.data
+            .map { preferences -> preferences[Keys.GUEST_LIBRARY_ADOPTED] ?: false }
+
+    suspend fun setGuestLibraryAdopted() {
+        context.playerPreferencesDataStore.edit { preferences ->
+            preferences[Keys.GUEST_LIBRARY_ADOPTED] = true
         }
     }
 

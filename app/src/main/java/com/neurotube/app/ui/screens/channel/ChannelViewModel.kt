@@ -4,9 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neurotube.app.R
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.ChannelSubscription
 import com.neurotube.app.data.local.PlayerPreferences
 import com.neurotube.app.data.local.SubscriptionRepository
@@ -27,12 +26,15 @@ import com.neurotube.app.innertube.pages.renderer.FeedItemOwner
 import com.neurotube.app.ui.youtubeChannelBrowseId
 import com.neurotube.app.ui.youtubeChannelUrl
 import com.neurotube.app.utils.PerformanceDispatcher
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -50,8 +52,8 @@ class ChannelViewModel
         private val playerPreferences: PlayerPreferences,
     ) : ViewModel() {
         val subscriptionGroups: StateFlow<List<SubscriptionGroup>> =
-            subscriptionGroupDao
-                .getAllGroups()
+            AccountScope.active
+                .flatMapLatest { accountId -> subscriptionGroupDao.getAllGroups(accountId) }
                 .map { entities -> entities.map { it.toUiModel() } }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(GROUPS_SUBSCRIPTION_TIMEOUT_MS), emptyList())
 
@@ -61,7 +63,8 @@ class ChannelViewModel
             inGroup: Boolean,
         ) {
             viewModelScope.launch(PerformanceDispatcher.diskIO) {
-                val group = subscriptionGroupDao.getAllGroupsOnce().firstOrNull { it.name == groupName } ?: return@launch
+                val accountId = AccountScope.activeId
+                val group = subscriptionGroupDao.getAllGroupsOnce(accountId).firstOrNull { it.name == groupName } ?: return@launch
                 val members = group.toUiModel().channelIds.toMutableSet()
                 if (inGroup) members.add(channelId) else members.remove(channelId)
                 subscriptionGroupDao.updateGroup(group.copy(channelIds = members.joinToString(",")))
@@ -74,10 +77,11 @@ class ChannelViewModel
         ) {
             viewModelScope.launch(PerformanceDispatcher.diskIO) {
                 val name = groupName.trim()
-                if (name.isEmpty() || subscriptionGroupDao.exists(name)) return@launch
-                val order = subscriptionGroupDao.getAllGroupsOnce().size
+                val accountId = AccountScope.activeId
+                if (name.isEmpty() || subscriptionGroupDao.exists(name, accountId)) return@launch
+                val order = subscriptionGroupDao.getAllGroupsOnce(accountId).size
                 subscriptionGroupDao.insertGroup(
-                    SubscriptionGroupEntity(name = name, channelIds = channelId, sortOrder = order),
+                    SubscriptionGroupEntity(name = name, channelIds = channelId, sortOrder = order, accountId = accountId),
                 )
             }
         }

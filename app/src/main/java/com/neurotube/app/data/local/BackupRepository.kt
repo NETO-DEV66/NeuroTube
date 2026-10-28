@@ -10,9 +10,9 @@ import androidx.room.withTransaction
 import com.google.gson.GsonBuilder
 import com.google.gson.Strictness
 import com.google.gson.stream.JsonReader
-import dagger.hilt.android.EntryPointAccessors
 import com.neurotube.app.BuildConfig
 import com.neurotube.app.R
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.audio.eq.EqStateJson
 import com.neurotube.app.data.backup.NewPipeChannelRef
 import com.neurotube.app.data.backup.NewPipeSubscriptionCodec
@@ -30,6 +30,7 @@ import com.neurotube.app.platform.AppIconEntryPoint
 import com.neurotube.app.player.audio.AudioEffectsEntryPoint
 import com.neurotube.app.util.AppIcons
 import com.neurotube.app.utils.ThumbnailUrlResolver
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -287,10 +288,10 @@ class BackupRepository(
             searchHistory = searchHistoryRepo.getSearchHistoryFlow().first(),
             musicSearchHistory = searchHistoryRepo.getSearchHistoryFlow(SearchHistoryScope.MUSIC).first(),
             subscriptions = subscriptionRepo.getAllSubscriptions().first(),
-            playlists = database.playlistDao().getAllPlaylists().first(),
-            playlistVideos = database.playlistDao().getAllPlaylistVideoCrossRefs(),
+            playlists = database.playlistDao().getAllPlaylists(AccountScope.activeId).first(),
+            playlistVideos = database.playlistDao().getAllPlaylistVideoCrossRefs(AccountScope.activeId),
             videos = database.videoDao().getAllVideos(),
-            subscriptionGroups = database.subscriptionGroupDao().getAllGroupsOnce(),
+            subscriptionGroups = database.subscriptionGroupDao().getAllGroupsOnce(AccountScope.activeId),
             notes = database.noteDao().getAll(),
             likedVideos = likedVideosRepo.getAllLikedVideos().first(),
             contentPreferences = getContentPreferencesBackup(),
@@ -1047,7 +1048,7 @@ class BackupRepository(
                 val firstThumb = ThumbnailUrlResolver.buildHighQualityYoutubeThumbnail(videoIds.first())
 
                 database.withTransaction {
-                    val existingPlaylist = database.playlistDao().getPlaylist(playlistId)
+                    val existingPlaylist = database.playlistDao().getPlaylist(playlistId, AccountScope.activeId)
                     if (existingPlaylist == null) {
                         database.playlistDao().insertPlaylist(
                             PlaylistEntity(
@@ -1063,14 +1064,15 @@ class BackupRepository(
                                 isPrivate = isWatchLater,
                                 createdAt = System.currentTimeMillis(),
                                 isMusic = isMusic,
+                                accountId = AccountScope.activeId,
                             ),
                         )
                     }
 
                     // Watch Later already holds entries, so append after its tail instead of
                     // restamping positions the user's own saves are using.
-                    val alreadyInPlaylist = database.playlistDao().getVideoIdsInPlaylist(playlistId).toHashSet()
-                    var nextPosition = (database.playlistDao().getMaxPlaylistPosition(playlistId) ?: -1L) + 1L
+                    val alreadyInPlaylist = database.playlistDao().getVideoIdsInPlaylist(playlistId, AccountScope.activeId).toHashSet()
+                    var nextPosition = (database.playlistDao().getMaxPlaylistPosition(playlistId, AccountScope.activeId) ?: -1L) + 1L
 
                     videoIds.forEach { videoId ->
                         database.videoDao().insertVideoOrIgnore(

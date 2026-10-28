@@ -57,7 +57,7 @@ class SubscriptionsViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        coEvery { subscriptionGroupDao.getAllGroups() } returns flowOf(emptyList())
+        coEvery { subscriptionGroupDao.getAllGroups(any()) } returns flowOf(emptyList())
         coEvery { playerPreferences.shortsShelfEnabled } returns flowOf(false)
         coEvery { playerPreferences.subscriptionShowVideos } returns flowOf(true)
         coEvery { playerPreferences.subscriptionShowShorts } returns flowOf(true)
@@ -112,7 +112,7 @@ class SubscriptionsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify(exactly = 0) { subscriptionRepository.getAllSubscriptions() }
-            coVerify(exactly = 0) { subscriptionGroupDao.getAllGroups() }
+            coVerify(exactly = 0) { subscriptionGroupDao.getAllGroups(any()) }
             coVerify(exactly = 0) { subscriptionFeedRepository.observeFeed() }
         }
 
@@ -122,19 +122,19 @@ class SubscriptionsViewModelTest {
             viewModel.ensureStarted()
 
             coVerify(timeout = VERIFY_TIMEOUT_MS) { subscriptionRepository.getAllSubscriptions() }
-            coVerify(timeout = VERIFY_TIMEOUT_MS) { subscriptionGroupDao.getAllGroups() }
+            coVerify(timeout = VERIFY_TIMEOUT_MS) { subscriptionGroupDao.getAllGroups(any()) }
         }
 
     @Test
     fun `ensureStarted is idempotent`() =
         runTest {
             viewModel.ensureStarted()
-            coVerify(timeout = VERIFY_TIMEOUT_MS) { subscriptionGroupDao.getAllGroups() }
+            coVerify(timeout = VERIFY_TIMEOUT_MS) { subscriptionGroupDao.getAllGroups(any()) }
 
             viewModel.ensureStarted()
             viewModel.ensureStarted()
 
-            coVerify(exactly = 1) { subscriptionGroupDao.getAllGroups() }
+            coVerify(exactly = 1) { subscriptionGroupDao.getAllGroups(any()) }
         }
 
     @Test

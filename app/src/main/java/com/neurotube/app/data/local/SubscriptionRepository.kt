@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.engagement.FeedInvalidationBus
 import com.neurotube.app.data.local.AppDatabase
 import com.neurotube.app.utils.ThumbnailUrlResolver
@@ -27,13 +28,17 @@ class SubscriptionRepository private constructor(
                 instance ?: SubscriptionRepository(context.applicationContext).also { instance = it }
             }
 
-        // Keys format: "channel_{channelId}" -> JSON string with channel info
-        private fun channelKey(channelId: String) = stringPreferencesKey("channel_$channelId")
+        // Keys format: "channel_{channelId}" -> JSON string with channel info. Both the channel and
+        // the order keys carry the active account's prefix, so one account's subscriptions are
+        // invisible to the next.
+        private fun channelKey(channelId: String) = stringPreferencesKey(AccountScopedPreferences.key("channel_$channelId"))
 
         /** "unsub_{channelId}" -> epoch ms the user unsubscribed. See [unsubscribedTombstones]. */
-        private fun unsubscribedKey(channelId: String) = stringPreferencesKey("unsub_$channelId")
+        private fun unsubscribedKey(channelId: String) = stringPreferencesKey(AccountScopedPreferences.key("unsub_$channelId"))
 
         private const val UNSUBSCRIBED_PREFIX = "unsub_"
+
+        private fun orderKey() = stringPreferencesKey(AccountScopedPreferences.key(SUBSCRIPTIONS_ORDER_KEY))
 
         private const val SUBSCRIPTIONS_ORDER_KEY = "subscriptions_order"
 
@@ -58,7 +63,7 @@ class SubscriptionRepository private constructor(
             preferences.remove(unsubscribedKey(safeChannel.channelId)) // re-subscribing clears the tombstone
 
             // Update order list
-            val currentOrder = preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] ?: ""
+            val currentOrder = preferences[orderKey()] ?: ""
             val orderList =
                 if (currentOrder.isEmpty()) {
                     mutableListOf()
@@ -68,7 +73,7 @@ class SubscriptionRepository private constructor(
 
             if (!orderList.contains(safeChannel.channelId)) {
                 orderList.add(0, safeChannel.channelId)
-                preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] = orderList.joinToString(",")
+                preferences[orderKey()] = orderList.joinToString(",")
             }
         }
     }
@@ -78,7 +83,7 @@ class SubscriptionRepository private constructor(
 
         context.subscriptionsDataStore.edit { preferences ->
             val currentOrder =
-                preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)]
+                preferences[orderKey()]
                     .orEmpty()
                     .split(",")
                     .filter { it.isNotEmpty() }
@@ -95,7 +100,7 @@ class SubscriptionRepository private constructor(
             }
 
             if (newIds.isNotEmpty()) {
-                preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] =
+                preferences[orderKey()] =
                     (newIds.asReversed() + currentOrder).joinToString(",")
             }
         }
@@ -111,14 +116,14 @@ class SubscriptionRepository private constructor(
             // Remember *when*, so device sync can tell an unsubscribe from "this device never knew
             // about the channel" and the removal actually reaches the other device.
             preferences[unsubscribedKey(channelId)] = now.toString()
-            prune(preferences, now)
+            prune(preferences, now, AccountScope.activeId)
 
             // Update order list
-            val currentOrder = preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] ?: ""
+            val currentOrder = preferences[orderKey()] ?: ""
             if (currentOrder.isNotEmpty()) {
                 val orderList = currentOrder.split(",").toMutableList()
                 orderList.remove(channelId)
-                preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] = orderList.joinToString(",")
+                preferences[orderKey()] = orderList.joinToString(",")
             }
         }
 
@@ -142,7 +147,7 @@ class SubscriptionRepository private constructor(
      */
     fun getAllSubscriptions(): Flow<List<ChannelSubscription>> =
         context.subscriptionsDataStore.data.map { preferences ->
-            val orderString = preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] ?: ""
+            val orderString = preferences[orderKey()] ?: ""
             if (orderString.isEmpty()) {
                 emptyList()
             } else {
@@ -161,7 +166,7 @@ class SubscriptionRepository private constructor(
         val orderString =
             context.subscriptionsDataStore.data
                 .map { preferences ->
-                    preferences[stringPreferencesKey(SUBSCRIPTIONS_ORDER_KEY)] ?: ""
+                    preferences[orderKey()] ?: ""
                 }.first()
 
         return if (orderString.isEmpty()) {
@@ -177,41 +182,55 @@ class SubscriptionRepository private constructor(
      * Device sync ships these as tombstones. Without them an unsubscribe is indistinguishable from
      * "never subscribed", and the peer that still holds the channel puts it straight back.
      */
-    suspend fun unsubscribedTombstones(): Map<String, Long> =
-        context.subscriptionsDataStore.data
+    suspend fun unsubscribedTombstones(): Map<String, Long> {
+        // Captured once so a scope change mid-scan cannot mix two accounts' tombstones.
+        val scope = AccountScope.activeId
+        return context.subscriptionsDataStore.data
             .map { preferences ->
                 preferences
                     .asMap()
                     .mapNotNull { (key, value) ->
-                        if (!key.name.startsWith(UNSUBSCRIBED_PREFIX)) return@mapNotNull null
+                        if (!AccountScopedPreferences.belongsTo(key.name, scope)) return@mapNotNull null
+                        val base = AccountScopedPreferences.baseName(key.name, scope)
+                        if (!base.startsWith(UNSUBSCRIBED_PREFIX)) return@mapNotNull null
                         val at = (value as? String)?.toLongOrNull() ?: return@mapNotNull null
-                        key.name.removePrefix(UNSUBSCRIBED_PREFIX) to at
+                        base.removePrefix(UNSUBSCRIBED_PREFIX) to at
                     }.toMap()
             }.first()
+    }
 
     /** Record a peer's unsubscribe so it keeps propagating to any third device. */
     suspend fun recordUnsubscribedAt(tombstones: Map<String, Long>) {
         if (tombstones.isEmpty()) return
         val now = System.currentTimeMillis()
+        val scope = AccountScope.activeId
         context.subscriptionsDataStore.edit { preferences ->
             tombstones.forEach { (channelId, at) ->
-                val existing = preferences[unsubscribedKey(channelId)]?.toLongOrNull() ?: 0L
-                if (at > existing) preferences[unsubscribedKey(channelId)] = at.toString()
+                val key = unsubscribedKey(channelId)
+                val existing = preferences[key]?.toLongOrNull() ?: 0L
+                if (at > existing) preferences[key] = at.toString()
             }
-            prune(preferences, now)
+            prune(preferences, now, scope)
         }
     }
 
-    /** Drop tombstones past the retention window so the store cannot grow without limit. */
+    /**
+     * Drop tombstones past the retention window so the store cannot grow without limit.
+     *
+     * Only [scope]'s tombstones are considered: the store holds every account at once, and expiring
+     * another account's unsubscribes while signed in as this one would resurrect them there.
+     */
     private fun prune(
         preferences: MutablePreferences,
         now: Long,
+        scope: String,
     ) {
         val cutoff = now - UNSUBSCRIBE_TOMBSTONE_RETENTION_MS
         preferences
             .asMap()
             .keys
-            .filter { it.name.startsWith(UNSUBSCRIBED_PREFIX) }
+            .filter { AccountScopedPreferences.belongsTo(it.name, scope) }
+            .filter { AccountScopedPreferences.baseName(it.name, scope).startsWith(UNSUBSCRIBED_PREFIX) }
             .forEach { key ->
                 val at = (preferences[key] as? String)?.toLongOrNull()
                 if (at == null || at < cutoff) preferences.remove(key)

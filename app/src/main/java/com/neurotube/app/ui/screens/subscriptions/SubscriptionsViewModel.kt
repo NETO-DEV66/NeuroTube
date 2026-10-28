@@ -3,7 +3,7 @@ package com.neurotube.app.ui.screens.subscriptions
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.backup.BackupCoordinator
 import com.neurotube.app.data.engagement.FeedInvalidationBus
 import com.neurotube.app.data.local.ChannelSubscription
@@ -21,6 +21,7 @@ import com.neurotube.app.data.subscriptions.withHighQualityThumbnails
 import com.neurotube.app.utils.PerformanceDispatcher
 import com.neurotube.app.utils.ThumbnailUrlResolver
 import com.neurotube.app.utils.formatYouTubeRelativeTime
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -103,10 +105,12 @@ class SubscriptionsViewModel
                     .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
             viewModelScope.launch(PerformanceDispatcher.diskIO) {
-                subscriptionGroupDao.getAllGroups().collect { entities ->
-                    val groups = entities.map { it.toUiModel() }
-                    _uiState.update { it.copy(groups = groups) }
-                }
+                AccountScope.active
+                    .flatMapLatest { accountId -> subscriptionGroupDao.getAllGroups(accountId) }
+                    .collect { entities ->
+                        val groups = entities.map { it.toUiModel() }
+                        _uiState.update { it.copy(groups = groups) }
+                    }
             }
 
             viewModelScope.launch(PerformanceDispatcher.diskIO) {
@@ -482,7 +486,7 @@ class SubscriptionsViewModel
 
         fun deleteGroup(name: String) {
             viewModelScope.launch(PerformanceDispatcher.diskIO) {
-                subscriptionGroupDao.deleteGroup(name)
+                subscriptionGroupDao.deleteGroup(name, AccountScope.activeId)
                 if (_uiState.value.selectedGroupName == name) {
                     selectGroup(null)
                 }

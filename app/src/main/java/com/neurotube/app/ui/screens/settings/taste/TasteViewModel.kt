@@ -4,8 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.backup.BackupCoordinator
 import com.neurotube.app.data.local.PlayerPreferences
 import com.neurotube.app.data.local.dao.WatchHistoryDao
@@ -21,6 +20,8 @@ import com.neurotube.app.data.recommendation.snapshot.HomeSnapshotStore
 import com.neurotube.app.data.stats.VideoStatsRecorder
 import com.neurotube.app.ui.screens.settings.SettingsViewModel
 import com.neurotube.app.ui.screens.settings.home.DeepFocusState
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -267,7 +268,7 @@ class TasteViewModel
         /** Channel names the device already knows: the recap ledger first, then watch history. */
         private suspend fun channelNames(): Map<String, String> {
             val names = HashMap<String, String>()
-            runCatching { watchHistoryDao.getChannelVideoCounts(NAME_LOOKUP_LIMIT) }
+            runCatching { watchHistoryDao.getChannelVideoCounts(AccountScope.activeId, NAME_LOOKUP_LIMIT) }
                 .getOrDefault(emptyList())
                 .forEach { if (it.channelName.isNotBlank()) names[it.channelId] = it.channelName }
             runCatching { videoStats.snapshot() }

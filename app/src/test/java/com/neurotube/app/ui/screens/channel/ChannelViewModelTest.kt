@@ -2,6 +2,7 @@ package com.neurotube.app.ui.screens.channel
 
 import android.content.Context
 import com.google.common.truth.Truth.assertThat
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.PlayerPreferences
 import com.neurotube.app.data.local.SubscriptionRepository
 import com.neurotube.app.data.local.dao.SubscriptionGroupDao
@@ -12,6 +13,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -39,7 +41,7 @@ class ChannelViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         coEvery { subscriptionRepository.getSubscription(any()) } returns flowOf(null)
-        coEvery { subscriptionGroupDao.getAllGroups() } returns flowOf(emptyList())
+        coEvery { subscriptionGroupDao.getAllGroups(any()) } returns flowOf(emptyList())
         coEvery { subscriptionRepository.getAllSubscriptions() } returns flowOf(emptyList())
         every { playerPreferences.effectiveChannelNotesEnabled } returns flowOf(true)
         every { playerPreferences.effectiveChannelShortsTabEnabled } returns flowOf(true)
@@ -109,66 +111,86 @@ class ChannelViewModelTest {
     @Test
     fun `setChannelInGroup adds the channel to the stored member list`() =
         runTest {
-            coEvery { subscriptionGroupDao.getAllGroupsOnce() } returns
+            coEvery { subscriptionGroupDao.getAllGroupsOnce(any()) } returns
                 listOf(SubscriptionGroupEntity(name = "Music", channelIds = "UC1", sortOrder = 0))
+            val written = slot<SubscriptionGroupEntity>()
+            coEvery { subscriptionGroupDao.updateGroup(capture(written)) } returns Unit
 
             viewModel.setChannelInGroup("Music", "UC2", inGroup = true)
 
-            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) {
-                subscriptionGroupDao.updateGroup(
-                    SubscriptionGroupEntity(name = "Music", channelIds = "UC1,UC2", sortOrder = 0),
+            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.updateGroup(any()) }
+            // The write is scoped to the active library, so one account's edit cannot land in another's.
+            assertThat(written.captured)
+                .isEqualTo(
+                    SubscriptionGroupEntity(
+                        name = "Music",
+                        channelIds = "UC1,UC2",
+                        sortOrder = 0,
+                        accountId = AccountScope.activeId,
+                    ),
                 )
-            }
         }
 
     @Test
     fun `setChannelInGroup removes the channel when it is already a member`() =
         runTest {
-            coEvery { subscriptionGroupDao.getAllGroupsOnce() } returns
+            coEvery { subscriptionGroupDao.getAllGroupsOnce(any()) } returns
                 listOf(SubscriptionGroupEntity(name = "Music", channelIds = "UC1,UC2", sortOrder = 0))
+            val written = slot<SubscriptionGroupEntity>()
+            coEvery { subscriptionGroupDao.updateGroup(capture(written)) } returns Unit
 
             viewModel.setChannelInGroup("Music", "UC2", inGroup = false)
 
-            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) {
-                subscriptionGroupDao.updateGroup(
-                    SubscriptionGroupEntity(name = "Music", channelIds = "UC1", sortOrder = 0),
+            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.updateGroup(any()) }
+            assertThat(written.captured)
+                .isEqualTo(
+                    SubscriptionGroupEntity(
+                        name = "Music",
+                        channelIds = "UC1",
+                        sortOrder = 0,
+                        accountId = AccountScope.activeId,
+                    ),
                 )
-            }
         }
 
     @Test
     fun `setChannelInGroup ignores a group that no longer exists`() =
         runTest {
-            coEvery { subscriptionGroupDao.getAllGroupsOnce() } returns emptyList()
+            coEvery { subscriptionGroupDao.getAllGroupsOnce(any()) } returns emptyList()
 
             viewModel.setChannelInGroup("Gone", "UC2", inGroup = true)
 
-            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.getAllGroupsOnce() }
+            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.getAllGroupsOnce(any()) }
             coVerify(exactly = 0) { subscriptionGroupDao.updateGroup(any()) }
         }
 
     @Test
     fun `createGroupWithChannel refuses a name that already exists`() =
         runTest {
-            coEvery { subscriptionGroupDao.exists("Music") } returns true
+            coEvery { subscriptionGroupDao.exists("Music", any()) } returns true
 
             viewModel.createGroupWithChannel("Music", "UC2")
 
-            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.exists("Music") }
+            coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) { subscriptionGroupDao.exists("Music", any()) }
             coVerify(exactly = 0) { subscriptionGroupDao.insertGroup(any()) }
         }
 
     @Test
     fun `createGroupWithChannel stores the trimmed name with the channel as its first member`() =
         runTest {
-            coEvery { subscriptionGroupDao.exists(any()) } returns false
-            coEvery { subscriptionGroupDao.getAllGroupsOnce() } returns emptyList()
+            coEvery { subscriptionGroupDao.exists(any(), any()) } returns false
+            coEvery { subscriptionGroupDao.getAllGroupsOnce(any()) } returns emptyList()
 
             viewModel.createGroupWithChannel("  Podcasts  ", "UC9")
 
             coVerify(timeout = GROUP_WRITE_TIMEOUT_MS) {
                 subscriptionGroupDao.insertGroup(
-                    SubscriptionGroupEntity(name = "Podcasts", channelIds = "UC9", sortOrder = 0),
+                    SubscriptionGroupEntity(
+                        name = "Podcasts",
+                        channelIds = "UC9",
+                        sortOrder = 0,
+                        accountId = AccountScope.activeId,
+                    ),
                 )
             }
         }

@@ -41,7 +41,10 @@ object WatchHistoryMapper {
         )
     }
 
-    fun toEntity(c: CanonicalWatchHistory): WatchHistoryEntity {
+    fun toEntity(
+        c: CanonicalWatchHistory,
+        accountId: String,
+    ): WatchHistoryEntity {
         val durationMs = c.durationSeconds * 1000
         val positionMs = (c.progress.coerceIn(0.0, 1.0) * durationMs).toLong()
         return WatchHistoryEntity(
@@ -56,6 +59,7 @@ object WatchHistoryMapper {
             isMusic = c.isMusic,
             isShort = c.isShort,
             isLocal = false, // synced rows are never device-local files
+            accountId = accountId,
         )
     }
 }
@@ -123,11 +127,15 @@ object SubscriptionsMapper {
         )
     }
 
-    fun toEntity(c: CanonicalSubscriptionGroup): SubscriptionGroupEntity =
+    fun toEntity(
+        c: CanonicalSubscriptionGroup,
+        accountId: String,
+    ): SubscriptionGroupEntity =
         SubscriptionGroupEntity(
             name = c.name,
             channelIds = c.channelIds.filter { it.isNotBlank() }.joinToString(DELIM),
             sortOrder = c.sortOrder,
+            accountId = accountId,
         )
 }
 

@@ -31,11 +31,36 @@ class YouTubeAccountManager
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val cacheInvalidator: AccountCacheInvalidator,
     ) {
+        init {
+            // The repository is the object that knows when the active account moves; hand it the
+            // cache clear so a switch cannot leave the previous account's feed behind.
+            YouTubeAccountRepository.bindCacheInvalidator(cacheInvalidator)
+        }
+
         /** The signed-in account, or `null` when signed out. */
         val account: StateFlow<YouTubeAccount?> = YouTubeAccountRepository.account
 
+        /** Every linked account, in the order they were added. */
+        val accounts: StateFlow<List<YouTubeAccount>> = YouTubeAccountRepository.accounts
+
+        /** How many accounts can be linked at once. */
+        val maxAccounts: Int get() = YouTubeAccountRepository.MAX_ACCOUNTS
+
+        /** True once no further account can be linked. */
+        val atCapacity: Boolean get() = YouTubeAccountRepository.atCapacity
+
         val isSignedIn: Boolean get() = YouTubeAccountRepository.isSignedIn
+
+        /** Makes an already-linked account active, switching the library the app reads. */
+        suspend fun switchTo(accountId: String): Boolean = YouTubeAccountRepository.switchTo(accountId)
+
+        /** Unlinks one account, keeping its library on disk. */
+        suspend fun remove(accountId: String) = YouTubeAccountRepository.remove(accountId)
+
+        /** The identity of [account], as the account list and preferences key it. */
+        fun identityOf(account: YouTubeAccount): String = account.identity()
 
         /**
          * Opens the Google sign-in WebView and validates whatever it captures.

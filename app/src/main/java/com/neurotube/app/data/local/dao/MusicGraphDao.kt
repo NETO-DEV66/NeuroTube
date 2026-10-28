@@ -226,6 +226,22 @@ interface MusicGraphDao {
     )
     suspend fun deleteOrphanPlaylistsBefore(before: Long)
 
+    /** Drops the whole graph. Used when the library moves to another account. */
+    @Query("DELETE FROM music_graph_edge")
+    suspend fun clearEdges()
+
+    @Query("DELETE FROM music_graph_track")
+    suspend fun clearTracks()
+
+    @Query("DELETE FROM music_graph_artist")
+    suspend fun clearArtists()
+
+    @Query("DELETE FROM music_graph_album")
+    suspend fun clearAlbums()
+
+    @Query("DELETE FROM music_graph_playlist")
+    suspend fun clearPlaylists()
+
     @Query("SELECT COUNT(*) FROM music_graph_track")
     suspend fun trackCount(): Int
 

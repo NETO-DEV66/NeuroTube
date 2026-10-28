@@ -8,14 +8,17 @@ import androidx.room.Update
 import com.neurotube.app.data.local.entity.SubscriptionGroupEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Channel groups, scoped to one account: a group is a saved view of that account's subscriptions,
+ * so it cannot be shared between accounts.
+ */
 @Dao
 interface SubscriptionGroupDao {
+    @Query("SELECT * FROM subscription_groups WHERE accountId = :accountId ORDER BY sortOrder ASC")
+    fun getAllGroups(accountId: String): Flow<List<SubscriptionGroupEntity>>
 
-    @Query("SELECT * FROM subscription_groups ORDER BY sortOrder ASC")
-    fun getAllGroups(): Flow<List<SubscriptionGroupEntity>>
-
-    @Query("SELECT * FROM subscription_groups ORDER BY sortOrder ASC")
-    suspend fun getAllGroupsOnce(): List<SubscriptionGroupEntity>
+    @Query("SELECT * FROM subscription_groups WHERE accountId = :accountId ORDER BY sortOrder ASC")
+    suspend fun getAllGroupsOnce(accountId: String): List<SubscriptionGroupEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGroup(group: SubscriptionGroupEntity)
@@ -26,9 +29,15 @@ interface SubscriptionGroupDao {
     @Update
     suspend fun updateGroup(group: SubscriptionGroupEntity)
 
-    @Query("DELETE FROM subscription_groups WHERE name = :name")
-    suspend fun deleteGroup(name: String)
+    @Query("DELETE FROM subscription_groups WHERE name = :name AND accountId = :accountId")
+    suspend fun deleteGroup(
+        name: String,
+        accountId: String,
+    )
 
-    @Query("SELECT EXISTS(SELECT 1 FROM subscription_groups WHERE name = :name)")
-    suspend fun exists(name: String): Boolean
+    @Query("SELECT EXISTS(SELECT 1 FROM subscription_groups WHERE name = :name AND accountId = :accountId)")
+    suspend fun exists(
+        name: String,
+        accountId: String,
+    ): Boolean
 }

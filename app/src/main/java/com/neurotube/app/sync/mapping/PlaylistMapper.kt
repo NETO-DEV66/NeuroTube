@@ -15,12 +15,14 @@ import com.neurotube.app.sync.canonical.CanonicalPlaylistItem
  *   syncId; saved external (YouTube) playlists carry `origin=youtube` + `youtubeId`.
  */
 object PlaylistMapper {
-
     const val WATCH_LATER_ID = "watch_later"
     const val SAVED_SHORTS_ID = "saved_shorts"
 
     /** One playlist member: its cross-ref (position) joined to the video metadata if present. */
-    data class ItemSource(val crossRef: PlaylistVideoCrossRef, val video: VideoEntity?)
+    data class ItemSource(
+        val crossRef: PlaylistVideoCrossRef,
+        val video: VideoEntity?,
+    )
 
     fun toCanonical(
         playlist: PlaylistEntity,
@@ -28,27 +30,29 @@ object PlaylistMapper {
         exportHlc: String,
     ): CanonicalPlaylist {
         val origin = if (!playlist.isUserCreated) CanonicalPlaylist.ORIGIN_YOUTUBE else CanonicalPlaylist.ORIGIN_LOCAL
-        val syncId = when (playlist.id) {
-            WATCH_LATER_ID -> CanonicalPlaylist.RESERVED_WATCH_LATER
-            else -> playlist.syncId ?: playlist.id
-        }
+        val syncId =
+            when (playlist.id) {
+                WATCH_LATER_ID -> CanonicalPlaylist.RESERVED_WATCH_LATER
+                else -> playlist.syncId ?: playlist.id
+            }
         // Sort by native cross-ref position ASC (= display order), then assign canonical rank 0..n.
-        val ranked = items.sortedBy { it.crossRef.position }.mapIndexed { idx, src ->
-            val v = src.video
-            CanonicalPlaylistItem(
-                videoId = src.crossRef.videoId,
-                position = idx.toLong(),
-                addedAtMs = if (src.crossRef.position < 0) -src.crossRef.position else 0L,
-                deleted = false,
-                title = v?.title ?: "",
-                channelName = v?.channelName ?: "",
-                channelId = v?.channelId ?: "",
-                thumbnailUrl = v?.thumbnailUrl ?: "",
-                durationSeconds = (v?.duration ?: 0).toLong(),
-                isMusic = v?.isMusic ?: playlist.isMusic,
-                hlc = exportHlc,
-            )
-        }
+        val ranked =
+            items.sortedBy { it.crossRef.position }.mapIndexed { idx, src ->
+                val v = src.video
+                CanonicalPlaylistItem(
+                    videoId = src.crossRef.videoId,
+                    position = idx.toLong(),
+                    addedAtMs = if (src.crossRef.position < 0) -src.crossRef.position else 0L,
+                    deleted = false,
+                    title = v?.title ?: "",
+                    channelName = v?.channelName ?: "",
+                    channelId = v?.channelId ?: "",
+                    thumbnailUrl = v?.thumbnailUrl ?: "",
+                    durationSeconds = (v?.duration ?: 0).toLong(),
+                    isMusic = v?.isMusic ?: playlist.isMusic,
+                    hlc = exportHlc,
+                )
+            }
         return CanonicalPlaylist(
             syncId = syncId,
             origin = origin,
@@ -66,7 +70,11 @@ object PlaylistMapper {
     }
 
     /** Build the Android playlist row for a merged canonical playlist targeting [localId]. */
-    fun toPlaylistEntity(c: CanonicalPlaylist, localId: String): PlaylistEntity =
+    fun toPlaylistEntity(
+        c: CanonicalPlaylist,
+        localId: String,
+        accountId: String,
+    ): PlaylistEntity =
         PlaylistEntity(
             id = localId,
             name = c.title,
@@ -78,15 +86,24 @@ object PlaylistMapper {
             isMusic = c.isMusic,
             isUserCreated = c.isUserCreated,
             syncId = if (localId == WATCH_LATER_ID) null else c.syncId,
+            accountId = accountId,
         )
 
     private fun coverThumbnail(c: CanonicalPlaylist): String =
-        c.items.filter { !it.deleted }.minByOrNull { it.position }?.thumbnailUrl.orEmpty()
+        c.items
+            .filter { !it.deleted }
+            .minByOrNull { it.position }
+            ?.thumbnailUrl
+            .orEmpty()
 
     /** Cross-refs for a merged canonical playlist; canonical rank → ascending Android position. */
-    fun toCrossRefs(c: CanonicalPlaylist, localId: String): List<PlaylistVideoCrossRef> =
+    fun toCrossRefs(
+        c: CanonicalPlaylist,
+        localId: String,
+        accountId: String,
+    ): List<PlaylistVideoCrossRef> =
         c.items.filter { !it.deleted }.map {
-            PlaylistVideoCrossRef(playlistId = localId, videoId = it.videoId, position = it.position)
+            PlaylistVideoCrossRef(playlistId = localId, videoId = it.videoId, position = it.position, accountId = accountId)
         }
 
     /** Stub video rows so the cross-ref FK is satisfied and the playlist shows item metadata. */

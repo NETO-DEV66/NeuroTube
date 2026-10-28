@@ -148,6 +148,26 @@ class FakeMusicGraphDao : MusicGraphDao {
         playlists.values.removeAll { it.lastSeenAt < before && !isLinked(it.playlistId) }
     }
 
+    override suspend fun clearEdges() {
+        edges.clear()
+    }
+
+    override suspend fun clearTracks() {
+        tracks.clear()
+    }
+
+    override suspend fun clearArtists() {
+        artists.clear()
+    }
+
+    override suspend fun clearAlbums() {
+        albums.clear()
+    }
+
+    override suspend fun clearPlaylists() {
+        playlists.clear()
+    }
+
     override suspend fun trackCount() = tracks.size
 
     override suspend fun edgeCount() = edges.size

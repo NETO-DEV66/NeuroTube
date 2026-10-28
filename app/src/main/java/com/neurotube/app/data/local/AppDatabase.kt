@@ -81,7 +81,7 @@ import com.neurotube.app.data.local.migrations.Migration24To25
         AutoMigration(from = 31, to = 32),
         AutoMigration(from = 32, to = 33),
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

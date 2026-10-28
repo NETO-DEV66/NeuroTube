@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import com.neurotube.app.R
+import com.neurotube.app.account.AccountScope
 import com.neurotube.app.data.local.entity.PlaylistEntity
 import com.neurotube.app.data.local.entity.PlaylistVideoCrossRef
 import com.neurotube.app.data.local.entity.VideoEntity
@@ -351,13 +352,16 @@ internal class YouTubeTakeoutImporter(
         if (videos.isEmpty()) return
         database.withTransaction {
             val dao = database.playlistDao()
-            if (dao.getPlaylist(playlist.id) == null) dao.insertPlaylist(playlist)
-            val held = dao.getVideoIdsInPlaylist(playlist.id).toHashSet()
-            var position = (dao.getMaxPlaylistPosition(playlist.id) ?: -1L) + 1L
+            val accountId = AccountScope.activeId
+            if (dao.getPlaylist(playlist.id, accountId) == null) dao.insertPlaylist(playlist.copy(accountId = accountId))
+            val held = dao.getVideoIdsInPlaylist(playlist.id, accountId).toHashSet()
+            var position = (dao.getMaxPlaylistPosition(playlist.id, accountId) ?: -1L) + 1L
             videos.forEach { video ->
                 database.videoDao().insertVideoOrIgnore(video)
                 if (!held.add(video.id)) return@forEach
-                dao.insertPlaylistVideoCrossRef(PlaylistVideoCrossRef(playlistId = playlist.id, videoId = video.id, position = position++))
+                dao.insertPlaylistVideoCrossRef(
+                    PlaylistVideoCrossRef(playlistId = playlist.id, videoId = video.id, position = position++, accountId = accountId),
+                )
             }
         }
     }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import com.neurotube.app.R
 import com.neurotube.app.account.AccountImportReport
 import com.neurotube.app.account.AccountImportState
 import com.neurotube.app.account.YouTubeAccount
+import com.neurotube.app.account.identity
 import com.neurotube.app.account.titleRes
 import com.neurotube.app.ui.components.settings.SettingsGroupScope
 import com.neurotube.app.ui.components.settings.SettingsPage
@@ -64,11 +66,14 @@ internal fun YouTubeAccountScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val account by viewModel.account.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val switchingTo by viewModel.switchingTo.collectAsStateWithLifecycle()
     val signInState by viewModel.signInState.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
     val autoImportEnabled by viewModel.autoImportEnabled.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+    var confirmRemove by rememberSaveable { mutableStateOf<String?>(null) }
 
     val failedMessage = stringResource(R.string.youtube_account_sign_in_failed)
     val importFailedMessage = stringResource(R.string.youtube_account_import_failed)
@@ -113,13 +118,28 @@ internal fun YouTubeAccountScreen(
                 )
             }
         }
-        group(key = "account.actions") {
+        group(key = "account.accounts", header = R.string.youtube_account_section_accounts) {
+            accountRows(
+                accounts = accounts,
+                activeId = account?.identity(),
+                switchingTo = switchingTo,
+                onSwitch = viewModel::switchTo,
+                onRemove = { confirmRemove = it.identity() },
+            )
             if (account == null) {
                 signInRow(
                     enabled = signInState != YouTubeSignInState.Working,
                     onClick = { viewModel.signIn(activity) },
                 )
-            } else {
+            } else if (accounts.size < viewModel.maxAccounts) {
+                addAccountRow(
+                    enabled = signInState != YouTubeSignInState.Working && switchingTo == null,
+                    onClick = { viewModel.signIn(activity) },
+                )
+            }
+        }
+        group(key = "account.actions") {
+            if (account != null) {
                 importRow(
                     state = importState,
                     onClick = { viewModel.importLibrary() },
@@ -130,6 +150,20 @@ internal fun YouTubeAccountScreen(
                 )
                 signOutRow(onClick = { confirmSignOut = true })
             }
+        }
+        if (switchingTo != null) {
+            notice(
+                key = "account.switching",
+                text = { stringResource(R.string.youtube_account_switching) },
+            )
+        }
+        if (accounts.size >= viewModel.maxAccounts) {
+            notice(
+                key = "account.limit",
+                text = { stringResource(R.string.youtube_account_limit, viewModel.maxAccounts) },
+                icon = Icons.Outlined.Warning,
+                isWarning = true,
+            )
         }
         (importState as? AccountImportState.Done)?.let { done ->
             notice(
@@ -153,6 +187,34 @@ internal fun YouTubeAccountScreen(
             icon = Icons.Outlined.Warning,
             isWarning = true,
         )
+    }
+
+    confirmRemove?.let { id ->
+        val target = accounts.firstOrNull { it.identity() == id }
+        if (target != null) {
+            FlowAlertDialog(
+                onDismissRequest = { confirmRemove = null },
+                icon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
+                title = { Text(stringResource(R.string.youtube_account_remove_confirm, target.name)) },
+                text = { Text(stringResource(R.string.youtube_account_remove_confirm_body)) },
+                confirmButton = {
+                    FlowActionButton(
+                        text = stringResource(R.string.youtube_account_remove),
+                        onClick = {
+                            confirmRemove = null
+                            viewModel.remove(target)
+                        },
+                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmRemove = null }) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+                },
+            )
+        } else {
+            confirmRemove = null
+        }
     }
 
     if (confirmSignOut) {
