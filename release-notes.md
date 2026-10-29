@@ -1,3 +1,32 @@
+# NeuroTube v1.5.6
+
+**Release date:** 2026-10-28
+
+This release brings multiple accounts. You can now keep up to five YouTube accounts linked and
+switch between them from the account page.
+
+## Features
+
+- **Up to five accounts.** The account page links a list of accounts instead of a single session.
+  Sign in with another Google account and it is added to the list; the sixth is refused with a
+  clear message, and the add row disappears once the list is full.
+- **Switching moves the whole library.** Tapping an account makes it the active one, and the
+  playlists, watch history and subscription groups you see follow it. The account you switched away
+  from keeps its library, so switching back brings it straight up again.
+- **Unlinking is not deleting.** Removing an account only unlinks it. Its library stays on the
+  device, so signing back into the same account brings it back rather than re-importing it.
+- **A library you already had is kept.** Everything stored before accounts existed is handed to the
+  first account you link, so upgrading does not look like a wiped library.
+- **Nothing stale is left behind.** The home feed, subscription feed, music home and the on-device
+  recommendation graph are cleared when the active account changes, so one account never sees
+  another's feed. Downloaded files are deliberately left shared, since they live on the device.
+
+## Notes
+
+- Switching only reads. Nothing is written back to any account and nothing is deleted.
+- The session is a cookie, stored encrypted on the device only and sent only to YouTube.
+- One universal APK, and the same signing key as every earlier release.
+
 # NeuroTube v1.5.5
 
 **Release date:** 2026-10-23
