@@ -5,6 +5,7 @@ import com.neurotube.app.account.toSubscribedArtists
 import com.neurotube.app.innertube.models.AlbumItem
 import com.neurotube.app.innertube.models.ArtistItem
 import com.neurotube.app.innertube.models.PlaylistItem
+import com.neurotube.app.innertube.models.SongItem
 import com.neurotube.app.innertube.models.response.BrowseResponse
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
@@ -37,6 +38,206 @@ class LibraryResponseParserTest {
     }
 
     private fun decode(json: String): BrowseResponse = this.json.decodeFromString(BrowseResponse.serializer(), json)
+
+    @Test
+    fun `a lockup playlist page imports every playlist it carries`() {
+        val page = LibraryResponseParser.pageOf(response("library_playlists_lockup.json"))
+
+        val playlists = page.items.filterIsInstance<PlaylistItem>()
+        assertEquals("the lockup shape is what a signed-in library is served now", 3, playlists.size)
+        assertTrue(playlists.all { it.id.isNotBlank() && it.title.isNotBlank() })
+    }
+
+    @Test
+    fun `a lockup artist shelf imports every artist it carries`() {
+        val page = LibraryResponseParser.pageOf(response("library_artists_lockup.json"))
+
+        assertEquals(3, page.items.filterIsInstance<ArtistItem>().size)
+    }
+
+    @Test
+    fun `a lockup album grid imports every album it carries`() {
+        val page = LibraryResponseParser.pageOf(response("library_albums_lockup.json"))
+
+        val albums = page.items.filterIsInstance<AlbumItem>()
+        assertEquals(2, albums.size)
+        assertEquals("MPREb_E7NpKw54NIT", albums.first().browseId)
+    }
+
+    @Test
+    fun `a lockup podcast grid imports every podcast it carries`() {
+        val page = LibraryResponseParser.pageOf(response("library_podcasts_lockup.json"))
+
+        assertEquals(1, page.items.filterIsInstance<PlaylistItem>().size)
+    }
+
+    @Test
+    fun `a grid wrapped in an item section is read`() {
+        val page =
+            LibraryResponseParser.pageOf(
+                decode(
+                    """
+                    {
+                     "responseContext": {},
+                     "contents": {
+                      "singleColumnBrowseResultsRenderer": {
+                       "tabs": [
+                        {
+                         "tabRenderer": {
+                          "content": {
+                           "sectionListRenderer": {
+                            "contents": [
+                             {
+                              "itemSectionRenderer": {
+                               "gridRenderer": {
+                                "items": [
+                                 {
+                                  "musicTwoRowItemRenderer": {
+                                   "title": {
+                                    "runs": [
+                                     {
+                                      "text": "Saved Album"
+                                     }
+                                    ]
+                                   },
+                                   "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                     "browseId": "MPREb_ALBUM",
+                                     "browseEndpointContextSupportedConfigs": {
+                                      "browseEndpointContextMusicConfig": {
+                                       "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                                      }
+                                     }
+                                    }
+                                   },
+                                   "thumbnailRenderer": {
+                                    "musicThumbnailRenderer": {
+                                     "thumbnail": {
+                                      "thumbnails": [
+                                       {
+                                        "url": "https://lh3.googleusercontent.com/a",
+                                        "width": 120,
+                                        "height": 120
+                                       }
+                                      ]
+                                     }
+                                    }
+                                   },
+                                   "thumbnailOverlay": {
+                                    "musicItemThumbnailOverlayRenderer": {
+                                     "content": {
+                                      "musicPlayButtonRenderer": {
+                                       "playNavigationEndpoint": {
+                                        "watchEndpoint": {
+                                         "videoId": "v",
+                                         "playlistId": "OLAK5uy_album"
+                                        }
+                                       }
+                                      }
+                                     }
+                                    }
+                                   }
+                                  }
+                                 }
+                                ]
+                               }
+                              }
+                             }
+                            ]
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    }
+                    """.trimIndent(),
+                ),
+            )
+
+        assertEquals("an item section wrapping a grid must not be walked past", 1, page.items.size)
+        assertTrue(page.items.single() is AlbumItem)
+    }
+
+    @Test
+    fun `a grid nested inside a shelf row is read`() {
+        val page =
+            LibraryResponseParser.pageOf(
+                decode(
+                    """
+                    {
+                     "responseContext": {},
+                     "contents": {
+                      "singleColumnBrowseResultsRenderer": {
+                       "tabs": [
+                        {
+                         "tabRenderer": {
+                          "content": {
+                           "sectionListRenderer": {
+                            "contents": [
+                             {
+                              "musicShelfRenderer": {
+                               "contents": [
+                                {
+                                 "gridRenderer": {
+                                  "items": [
+                                   {
+                                    "musicTwoRowItemRenderer": {
+                                     "title": {
+                                      "runs": [
+                                       {
+                                        "text": "Nested Playlist"
+                                       }
+                                      ]
+                                     },
+                                     "navigationEndpoint": {
+                                      "browseEndpoint": {
+                                       "browseId": "VLPLnested",
+                                       "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                         "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                       }
+                                      }
+                                     },
+                                     "thumbnailRenderer": {
+                                      "musicThumbnailRenderer": {
+                                       "thumbnail": {
+                                        "thumbnails": [
+                                         {
+                                          "url": "https://lh3.googleusercontent.com/n",
+                                          "width": 120,
+                                          "height": 120
+                                         }
+                                        ]
+                                       }
+                                      }
+                                     }
+                                    }
+                                   }
+                                  ]
+                                 }
+                                }
+                               ]
+                              }
+                             }
+                            ]
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    }
+                    """.trimIndent(),
+                ),
+            )
+
+        assertEquals("a grid nested in a shelf row must not be walked past", 1, page.items.size)
+        assertTrue(page.items.single() is PlaylistItem)
+    }
 
     @Test
     fun `a one-section page reads the next token that hangs off the section list`() {
@@ -156,6 +357,173 @@ class LibraryResponseParserTest {
         assertEquals(25, page.items.size)
         assertTrue(page.items.all { it is ArtistItem })
         assertNotNull(page.continuation)
+    }
+
+    /** One grid row for a liked song, in the shape the library serves it. */
+    private fun songRow(
+        id: String,
+        title: String,
+    ): String =
+        """
+        {"musicTwoRowItemRenderer":{
+          "title":{"runs":[{"text":"$title"}]},
+          "subtitle":{"runs":[{"text":"An Artist",
+            "navigationEndpoint":{"browseEndpoint":{"browseId":"UCartist"}}}]},
+          "thumbnailRenderer":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+            {"url":"https://lh3.googleusercontent.com/$id","width":120,"height":120}]}}},
+          "navigationEndpoint":{"watchEndpoint":{"videoId":"$id"}}
+        }}
+        """.trimIndent()
+
+    /** A library page whose liked songs arrive as a grid of two-row song rows. */
+    private fun likedSongsGridPage(
+        ids: List<Pair<String, String>>,
+        next: String?,
+    ): BrowseResponse {
+        val rows = ids.joinToString(",") { songRow(it.first, it.second) }
+        val continuation =
+            if (next == null) "" else ""","continuations":[{"reloadContinuationData":{"continuation":"$next"}}]"""
+        return decode(
+            """
+            {"responseContext":{},
+             "contents":{"singleColumnBrowseResultsRenderer":{"tabs":[
+               {"tabRenderer":{"content":{"sectionListRenderer":{
+                 "contents":[{"gridRenderer":{"items":[$rows]}}]$continuation
+               }}}}
+             ]}}}
+            """.trimIndent(),
+        )
+    }
+
+    /** One shelf row for a liked song, in the shape a playlist shelf serves it. */
+    private fun songShelfRow(
+        id: String,
+        title: String,
+    ): String =
+        """
+        {"musicResponsiveListItemRenderer":{
+          "playlistItemData":{"videoId":"$id"},
+          "flexColumns":[
+            {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"$title"}]}}},
+            {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+              {"text":"An Artist","navigationEndpoint":{"browseEndpoint":{"browseId":"UCartist"}}}]}}}
+          ],
+          "thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+            {"url":"https://lh3.googleusercontent.com/$id","width":120,"height":120}]}}}
+        }}
+        """.trimIndent()
+
+    /** A liked-songs continuation, as a playlist shelf carrying the next token. */
+    private fun likedSongsContinuation(
+        ids: List<Pair<String, String>>,
+        next: String?,
+    ): BrowseResponse {
+        val rows = ids.joinToString(",") { songShelfRow(it.first, it.second) }
+        val continuation =
+            if (next == null) "" else ""","continuations":[{"nextContinuationData":{"continuation":"$next"}}]"""
+        return decode(
+            """
+            {"responseContext":{},
+             "continuationContents":{"musicPlaylistShelfContinuation":{
+               "contents":[$rows]$continuation
+             }}}
+            """.trimIndent(),
+        )
+    }
+
+    @Test
+    fun `a grid of two-row song rows imports every song`() {
+        val page = LibraryResponseParser.pageOf(likedSongsGridPage(listOf("v1" to "One", "v2" to "Two"), null))
+
+        assertEquals("a two-row song row is a song, not a shape to walk past", 2, page.items.size)
+        assertTrue(page.items.all { it is SongItem })
+        assertEquals("v1", page.items.first().id)
+    }
+
+    @Test
+    fun `a liked-songs page keeps the token that continues it`() {
+        val page = LibraryResponseParser.pageOf(likedSongsGridPage(listOf("v1" to "One"), "NEXT"))
+
+        assertEquals(1, page.items.size)
+        assertEquals("NEXT", page.continuation)
+    }
+
+    @Test
+    fun `a liked-songs continuation served as a playlist shelf is read`() {
+        val page = LibraryResponseParser.continuationPageOf(likedSongsContinuation(listOf("v2" to "Two"), "NEXT2"))
+
+        assertEquals(1, page.items.size)
+        assertTrue(page.items.single() is SongItem)
+        assertEquals("NEXT2", page.continuation)
+    }
+
+    @Test
+    fun `every liked song is walked, not just the first page`() {
+        val firstPage = (1..50).map { "v$it" to "Song $it" }
+        val secondPage = (51..77).map { "v$it" to "Song $it" }
+
+        val first = LibraryResponseParser.pageOf(likedSongsGridPage(firstPage, "PAGE2"))
+        val second = LibraryResponseParser.continuationPageOf(likedSongsContinuation(secondPage, null))
+
+        assertEquals("the first page is read whole", 50, first.items.size)
+        assertEquals("the continuation is read whole", 27, second.items.size)
+        assertEquals("50 + 27 is the account's 77 likes", 77, (first.items + second.items).distinctBy { it.id }.size)
+    }
+
+    @Test
+    fun `a liked-songs page served as a playlist shelf is read`() {
+        val page =
+            LibraryResponseParser.pageOf(
+                decode(
+                    """
+                    {"responseContext":{},
+                     "contents":{"singleColumnBrowseResultsRenderer":{"tabs":[
+                       {"tabRenderer":{"content":{"sectionListRenderer":{
+                         "contents":[{"musicPlaylistShelfRenderer":{"contents":[
+                           {"musicResponsiveListItemRenderer":{
+                             "playlistItemData":{"videoId":"v1"},
+                             "flexColumns":[
+                               {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"One"}]}}},
+                               {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                                 {"text":"An Artist","navigationEndpoint":{"browseEndpoint":{"browseId":"UCa"}}}]}}}
+                             ],
+                             "thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+                               {"url":"https://lh3.googleusercontent.com/v1","width":120,"height":120}]}}}
+                           }}
+                         ]}}]
+                       }}}}
+                     ]}}}
+                    """.trimIndent(),
+                ),
+            )
+
+        assertEquals(1, page.items.size)
+        assertTrue(page.items.single() is SongItem)
+    }
+
+    @Test
+    fun `a liked-songs continuation handed back as an append action is read`() {
+        val page =
+            LibraryResponseParser.continuationPageOf(
+                decode(
+                    """
+                    {"responseContext":{},
+                     "onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[
+                       {"musicResponsiveListItemRenderer":{
+                         "playlistItemData":{"videoId":"v9"},
+                         "flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Nine"}]}}}],
+                         "thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+                           {"url":"https://lh3.googleusercontent.com/v9","width":120,"height":120}]}}}
+                       }},
+                       {"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"MORE"}}}}
+                     ]}}]}
+                    """.trimIndent(),
+                ),
+            )
+
+        assertEquals(1, page.items.size)
+        assertEquals("v9", page.items.single().id)
+        assertEquals("MORE", page.continuation)
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.neurotube.app.innertube.models.MusicResponsiveListItemRenderer
 import com.neurotube.app.innertube.models.MusicTwoRowItemRenderer
 import com.neurotube.app.innertube.models.PlaylistItem
 import com.neurotube.app.innertube.models.Run
+import com.neurotube.app.innertube.models.Runs
 import com.neurotube.app.innertube.models.SongItem
 import com.neurotube.app.innertube.models.YTItem
 import com.neurotube.app.innertube.models.oddElements
@@ -134,11 +135,62 @@ data class LibraryPage(
                     )
                 }
 
+                renderer.isSong -> {
+                    // A liked-songs page is a grid of two-row rows, and a song row is neither an
+                    // album, a playlist nor an artist. Reading only those three walked past every
+                    // song the grid carried, so the imported like count fell short of the account's.
+                    SongItem(
+                        id =
+                            renderer.navigationEndpoint.watchEndpoint?.videoId
+                                ?: renderer.navigationEndpoint.watchPlaylistEndpoint?.videoId
+                                ?: return null,
+                        title =
+                            renderer.title.runs
+                                ?.firstOrNull()
+                                ?.text ?: return null,
+                        artists = renderer.subtitle.artistsOf(),
+                        album = null,
+                        duration = null,
+                        musicVideoType = renderer.musicVideoType,
+                        thumbnail = renderer.thumbnailRenderer.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                        explicit =
+                            renderer.subtitleBadges?.find {
+                                it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                            } != null,
+                        endpoint =
+                            renderer.thumbnailOverlay
+                                ?.musicItemThumbnailOverlayRenderer
+                                ?.content
+                                ?.musicPlayButtonRenderer
+                                ?.playNavigationEndpoint
+                                ?.watchEndpoint
+                                ?: renderer.navigationEndpoint.watchEndpoint,
+                    )
+                }
+
                 else -> {
                     null
                 }
             }
         }
+
+        /**
+         * The artists named by a row's subtitle, keeping only the runs that link to a channel.
+         *
+         * Unlike [parseArtists] this never asserts: a subtitle run can carry a watch endpoint or no
+         * endpoint at all, and either must not fail the whole page.
+         */
+        private fun Runs?.artistsOf(): List<Artist> =
+            this
+                ?.runs
+                .orEmpty()
+                .mapNotNull { run ->
+                    run.navigationEndpoint
+                        ?.browseEndpoint
+                        ?.browseId
+                        ?.takeIf(String::isNotBlank)
+                        ?.let { Artist(name = run.text, id = it) }
+                }
 
         fun fromMusicResponsiveListItemRenderer(renderer: MusicResponsiveListItemRenderer): YTItem? {
             return when {
