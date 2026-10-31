@@ -121,11 +121,10 @@ class YouTubeLoginActivity : ComponentActivity() {
      * A session only exists once Google has sent the user on to a YouTube page with its cookies set.
      *
      * The jar is polled until it holds a session, because the cookies land across a redirect chain
-     * and are not necessarily all present on the page whose `onPageFinished` fired. The page's
-     * visitor identity is asked for alongside; it is answered by JavaScript, so it is re-asked while
-     * it is still missing rather than blocking the capture on it — InnerTube validates the request
-     * context against the identity, but a session without it is still worth completing and is what
-     * the repository validates.
+     * and are not necessarily all present on the page whose `onPageFinished` fired. Once a session is
+     * there it is given a short grace period for the page's visitor identity, which is answered by
+     * JavaScript and is what InnerTube validates the request context against; if the page never
+     * reports one the session is captured anyway rather than stranding the attempt.
      *
      * A page that never yields a session leaves the poll to expire; the user is still in the WebView
      * and can continue, and the next page load starts a fresh poll.
@@ -141,18 +140,27 @@ class YouTubeLoginActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val deadline = System.currentTimeMillis() + CAPTURE_TIMEOUT_MS
+                var sessionSeenAt = 0L
                 var nextIdentityRead = System.currentTimeMillis() + IDENTITY_REREAD_INTERVAL_MS
                 while (!completed && System.currentTimeMillis() < deadline) {
                     delay(CAPTURE_POLL_INTERVAL_MS)
                     if (completed || isFinishing || isDestroyed) return@launch
+                    val now = System.currentTimeMillis()
 
                     val header = YouTubeCookieExtractor.toCookieHeader(youtubeCookieJar())
                     if (header == null || !YouTubeCookieExtractor.hasSession(header)) continue
+                    if (sessionSeenAt == 0L) sessionSeenAt = now
 
-                    if (capturedVisitorData == null && System.currentTimeMillis() >= nextIdentityRead) {
-                        // The page may have only just become ready to answer.
-                        nextIdentityRead = System.currentTimeMillis() + IDENTITY_REREAD_INTERVAL_MS
-                        readSessionIdentity(webView)
+                    // The identity is answered by JavaScript and InnerTube validates the request
+                    // context against it, so a session that arrives before its identity waits a
+                    // moment for it — but not forever, or a page that never reports one would strand
+                    // the capture. A session without an identity is still worth completing.
+                    if (capturedVisitorData == null && now - sessionSeenAt < IDENTITY_GRACE_MS) {
+                        if (now >= nextIdentityRead) {
+                            nextIdentityRead = now + IDENTITY_REREAD_INTERVAL_MS
+                            readSessionIdentity(webView)
+                        }
+                        continue
                     }
 
                     completed = true
@@ -240,6 +248,9 @@ class YouTubeLoginActivity : ComponentActivity() {
 
         /** The visitor identity is answered by JS, so it is re-asked while it is still missing. */
         const val IDENTITY_REREAD_INTERVAL_MS = 1_000L
+
+        /** How long a session waits for its visitor identity before being captured without one. */
+        const val IDENTITY_GRACE_MS = 2_000L
 
         const val JS_READ_VISITOR_DATA =
             "(function(){try{return (window.yt&&window.yt.config_&&window.yt.config_.VISITOR_DATA)||null}" +
