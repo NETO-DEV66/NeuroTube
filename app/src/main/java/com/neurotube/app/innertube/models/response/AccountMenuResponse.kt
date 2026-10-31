@@ -37,13 +37,22 @@ data class AccountMenuResponse(
                             val channelHandle: Runs? = null,
                             val accountPhoto: Thumbnails,
                         ) {
-                            fun toAccountInfo() =
-                                AccountInfo(
-                                    name = accountName.runs!!.first().text,
-                                    email = email?.runs?.first()?.text,
-                                    channelHandle = channelHandle?.runs?.first()?.text,
-                                    thumbnailUrl = accountPhoto.thumbnails.lastOrNull()?.url,
-                                )
+                            /**
+                             * The account's own name, or `null` when the menu carried no header for
+                             * it. The menu answers with an empty header for a session InnerTube has
+                             * not accepted yet, which is a sign-in failure — not a reason to throw.
+                             */
+                            fun toAccountInfo(): AccountInfo? {
+                                val name = accountName.runs?.firstOrNull()?.text?.takeIf(String::isNotBlank)
+                                return name?.let {
+                                    AccountInfo(
+                                        name = it,
+                                        email = email?.runs?.firstOrNull()?.text,
+                                        channelHandle = channelHandle?.runs?.firstOrNull()?.text,
+                                        thumbnailUrl = accountPhoto.thumbnails.lastOrNull()?.url,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

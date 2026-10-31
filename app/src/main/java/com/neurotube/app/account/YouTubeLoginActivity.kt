@@ -41,11 +41,16 @@ import kotlinx.coroutines.launch
  * Once a YouTube page carries a session, the cookies and the page's own visitor identity are lifted
  * out and handed to [YouTubeLoginBroker]. The jar is wiped on every exit path — success, cancel, or
  * failure — so the credential exists only in the encrypted store the repository owns.
+ *
+ * Capture is a bounded poll rather than a single test. Google sets the session cookies across a
+ * redirect chain, so the jar is not necessarily complete on the page whose `onPageFinished` fired,
+ * and the page's visitor identity is answered asynchronously by JavaScript. Testing once and waiting
+ * a fixed moment reported a failure for a session that simply had not landed yet, which is why a
+ * second or third attempt succeeded where the first did not.
  */
 class YouTubeLoginActivity : ComponentActivity() {
     private var completed = false
     private var cleanupStarted = false
-    private var captureScheduled = false
     private lateinit var loginWebView: WebView
 
     /** Read back from the page's own JS, which answers after [WebViewClient.onPageFinished] returns. */
@@ -54,6 +59,9 @@ class YouTubeLoginActivity : ComponentActivity() {
 
     @Volatile
     private var capturedDataSyncId: String? = null
+
+    /** Set once a poll has run, so overlapping page loads do not start a second one. */
+    private var capturePolling = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,13 +95,18 @@ class YouTubeLoginActivity : ComponentActivity() {
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(loginWebView, true)
-            // A half-finished attempt must not be resumed from a stale jar.
-            removeAllCookies(null)
-            flush()
         }
 
         setContentView(loginWebView)
-        loginWebView.loadUrl(SIGN_IN_URL)
+
+        // `removeAllCookies` is asynchronous, so a half-finished attempt must be gone *before* the
+        // first page is requested. Loading immediately raced the wipe and could resume the previous
+        // attempt's jar, which is another reason attempts behaved differently from one another.
+        CookieManager.getInstance().removeAllCookies {
+            if (completed || isFinishing || isDestroyed) return@removeAllCookies
+            CookieManager.getInstance().flush()
+            loginWebView.loadUrl(SIGN_IN_URL)
+        }
     }
 
     override fun onDestroy() {
@@ -106,38 +119,56 @@ class YouTubeLoginActivity : ComponentActivity() {
 
     /**
      * A session only exists once Google has sent the user on to a YouTube page with its cookies set.
-     * The page reports the visitor identity the session was minted with asynchronously, so the
-     * capture waits a moment for it before reporting.
+     *
+     * The jar is polled until it holds a session, because the cookies land across a redirect chain
+     * and are not necessarily all present on the page whose `onPageFinished` fired. The page's
+     * visitor identity is asked for alongside; it is answered by JavaScript, so it is re-asked while
+     * it is still missing rather than blocking the capture on it — InnerTube validates the request
+     * context against the identity, but a session without it is still worth completing and is what
+     * the repository validates.
+     *
+     * A page that never yields a session leaves the poll to expire; the user is still in the WebView
+     * and can continue, and the next page load starts a fresh poll.
      */
     private fun captureWhenAuthenticated(
         webView: WebView,
         url: String,
     ) {
-        if (completed || !isYouTubeUrl(url)) return
+        if (completed || capturePolling || !SignInCapture.isYouTubeUrl(url)) return
+
+        capturePolling = true
         readSessionIdentity(webView)
-        if (captureScheduled || !YouTubeCookieExtractor.hasSession(youtubeCookieJar())) return
-
-        captureScheduled = true
         lifecycleScope.launch {
-            delay(IDENTITY_SETTLE_MS)
-            if (completed) return@launch
+            try {
+                val deadline = System.currentTimeMillis() + CAPTURE_TIMEOUT_MS
+                var nextIdentityRead = System.currentTimeMillis() + IDENTITY_REREAD_INTERVAL_MS
+                while (!completed && System.currentTimeMillis() < deadline) {
+                    delay(CAPTURE_POLL_INTERVAL_MS)
+                    if (completed || isFinishing || isDestroyed) return@launch
 
-            val header = YouTubeCookieExtractor.toCookieHeader(youtubeCookieJar())
-            if (header == null || !YouTubeCookieExtractor.hasSession(header)) {
-                // Not a session after all; a later page may still carry one.
-                captureScheduled = false
-                return@launch
+                    val header = YouTubeCookieExtractor.toCookieHeader(youtubeCookieJar())
+                    if (header == null || !YouTubeCookieExtractor.hasSession(header)) continue
+
+                    if (capturedVisitorData == null && System.currentTimeMillis() >= nextIdentityRead) {
+                        // The page may have only just become ready to answer.
+                        nextIdentityRead = System.currentTimeMillis() + IDENTITY_REREAD_INTERVAL_MS
+                        readSessionIdentity(webView)
+                    }
+
+                    completed = true
+                    YouTubeLoginBroker.complete(
+                        YouTubeLoginSession(
+                            cookieHeader = header,
+                            visitorData = capturedVisitorData,
+                            dataSyncId = capturedDataSyncId,
+                        ),
+                    )
+                    clearLoginSession(onComplete = ::finish)
+                    return@launch
+                }
+            } finally {
+                capturePolling = false
             }
-
-            completed = true
-            YouTubeLoginBroker.complete(
-                YouTubeLoginSession(
-                    cookieHeader = header,
-                    visitorData = capturedVisitorData,
-                    dataSyncId = capturedDataSyncId,
-                ),
-            )
-            clearLoginSession(onComplete = ::finish)
         }
     }
 
@@ -155,7 +186,9 @@ class YouTubeLoginActivity : ComponentActivity() {
 
     /** Every origin the session is set on, so a cookie one host drops is still picked up by another. */
     private fun youtubeCookieJar(): String =
-        YOUTUBE_ORIGINS.mapNotNull { CookieManager.getInstance().getCookie(it) }.joinToString("; ")
+        SignInCapture.YOUTUBE_ORIGINS
+            .mapNotNull { origin -> CookieManager.getInstance().getCookie("https://$origin") }
+            .joinToString("; ")
 
     private fun clearLoginSession(onComplete: (() -> Unit)? = null) {
         if (cleanupStarted) {
@@ -164,7 +197,7 @@ class YouTubeLoginActivity : ComponentActivity() {
         }
         cleanupStarted = true
 
-        YOUTUBE_ORIGINS.forEach { WebStorage.getInstance().deleteOrigin(it) }
+        SignInCapture.GOOGLE_ORIGINS.forEach { WebStorage.getInstance().deleteOrigin("https://$it") }
         if (::loginWebView.isInitialized) {
             loginWebView.stopLoading()
             loginWebView.clearFormData()
@@ -181,42 +214,32 @@ class YouTubeLoginActivity : ComponentActivity() {
     }
 
     /**
-     * Expires every cookie the jar holds for the origins Google sign-in touches. The jar is shared
-     * with the rest of the app's WebViews, so this also drops the consent cookie, which the network
-     * layer re-adds per request when it needs it.
+     * Drops the whole jar once the WebView is done with it.
+     *
+     * This used to expire cookies by name with `name=; Max-Age=0; Path=/; Secure`, which does not
+     * remove a domain-scoped cookie such as `.youtube.com` — it writes a *host-only* cookie next to
+     * it and leaves the session in place. The remaining session then leaked into the next attempt,
+     * so a retry did not start from a clean jar. Nothing in this activity's jar is worth keeping:
+     * the WebView is destroyed immediately afterwards and the real session lives in the encrypted
+     * account store.
      */
     private fun clearGoogleCookies(onComplete: () -> Unit) {
         val manager = CookieManager.getInstance()
-        val names =
-            GOOGLE_ORIGINS
-                .flatMap { origin -> manager.getCookie(origin).orEmpty().split(';') }
-                .mapNotNull { cookie -> cookie.substringBefore('=').trim().takeIf(String::isNotEmpty) }
-                .distinct()
-        if (names.isEmpty()) {
+        manager.removeAllCookies {
             manager.flush()
             onComplete()
-            return
-        }
-
-        var remaining = GOOGLE_ORIGINS.size * names.size
-        GOOGLE_ORIGINS.forEach { origin ->
-            names.forEach { name ->
-                manager.setCookie(origin, "$name=; Max-Age=0; Path=/; Secure") {
-                    remaining -= 1
-                    if (remaining == 0) {
-                        manager.flush()
-                        onComplete()
-                    }
-                }
-            }
         }
     }
 
-    private fun isYouTubeUrl(url: String): Boolean = YOUTUBE_ORIGINS.any { url.startsWith(it) }
-
     private companion object {
         const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
-        const val IDENTITY_SETTLE_MS = 600L
+
+        /** How long a single page load is given to produce a session before the poll stands down. */
+        const val CAPTURE_TIMEOUT_MS = 8_000L
+        const val CAPTURE_POLL_INTERVAL_MS = 200L
+
+        /** The visitor identity is answered by JS, so it is re-asked while it is still missing. */
+        const val IDENTITY_REREAD_INTERVAL_MS = 1_000L
 
         const val JS_READ_VISITOR_DATA =
             "(function(){try{return (window.yt&&window.yt.config_&&window.yt.config_.VISITOR_DATA)||null}" +
@@ -224,24 +247,5 @@ class YouTubeLoginActivity : ComponentActivity() {
         const val JS_READ_DATA_SYNC_ID =
             "(function(){try{return (window.yt&&window.yt.config_&&window.yt.config_.DATASYNC_ID)||null}" +
                 "catch(e){return null}})()"
-
-        val YOUTUBE_ORIGINS =
-            listOf(
-                "https://www.youtube.com",
-                "https://m.youtube.com",
-                "https://music.youtube.com",
-            )
-
-        val GOOGLE_ORIGINS =
-            listOf(
-                "https://www.youtube.com",
-                "https://m.youtube.com",
-                "https://music.youtube.com",
-                "https://accounts.google.com",
-                "https://accounts.youtube.com",
-                "https://consent.youtube.com",
-                "https://myaccount.google.com",
-                "https://www.google.com",
-            )
     }
 }
