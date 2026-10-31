@@ -1,3 +1,37 @@
+# NeuroTube v1.5.8
+
+**Release date:** 2026-10-31
+
+Home now has a lane of its own for the account you are signed in to. YouTube's own recommendations
+for your account — the ones on its own Home page — are blended into Home alongside the lanes the app
+builds from your library, so a signed-in viewer finally sees the ranking that already knows their
+watch history.
+
+## New
+
+- **Your account's own Home picks show up on Home.** While signed in, Home reads your account's
+  `what to watch` page and mixes those picks in as their own lane. They keep YouTube's order, because
+  the account's own ranking is the whole point of them, and only the app's usual exclusions are
+  applied — hidden videos, blocked channels and topics, Shorts, and anything you have already
+  watched.
+- **The account lane takes its share from the exploration lane, not on top of it.** The page keeps
+  the same shape it had: subscriptions, related, discovery, channel memory and neighbour channels all
+  keep the share they had, and the generic discovery lane gets a little smaller to make room. Nothing
+  is squeezed out.
+- **A card from the account lane says where it came from.** It reads "From your YouTube account"
+  rather than naming a seed or a search it never had.
+- **One request per Home load.** Load-more pages reuse the picks already fetched instead of asking
+  again, and they are dropped when you switch accounts.
+
+## Notes
+
+- Signed out, or if the request fails, nothing changes: Home is exactly what it was before. An
+  expired session, a network blip and a guest all mean the same thing here.
+- The account lane is the only part of Home the app does not rank itself. Everything else is still
+  built and ordered on the device.
+- Reading this page only reads. Nothing is written back to the account and nothing is deleted.
+- One universal APK, and the same signing key as every earlier release.
+
 # NeuroTube v1.5.7
 
 **Release date:** 2026-10-31
