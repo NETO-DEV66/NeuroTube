@@ -1,3 +1,44 @@
+# NeuroTube v1.5.7
+
+**Release date:** 2026-10-31
+
+A bug-fix release for signing in. Signing in to an account failed on the first attempt and only
+went through on the second or third. The sign-in now completes in one attempt.
+
+## Fixes
+
+- **Signing in works on the first try.** The sign-in WebView captured the session by testing the
+  cookie jar at a single instant, on the page-load callback. Google sets the session cookies across
+  a chain of redirects, so the jar is not always complete on the page whose callback fired — and
+  when it was not, nothing tested it again and the attempt was lost. The jar is now polled until it
+  holds a session, with a bounded deadline.
+- **The session is no longer saved without its visitor identity.** The identity the session was
+  minted with is read from the page by JavaScript, which answers after the page-load callback
+  returns. It was read back after a fixed pause, so on a cold first load it had not arrived yet and
+  the session was stored without it — and InnerTube checks the request context against it. A session
+  that arrives before its identity now waits a short, bounded moment for it.
+- **A slow session is no longer reported as a failed sign-in.** A session that YouTube has not
+  accepted yet answers with an account menu that carries no account header, and reading that menu
+  threw instead of reporting "not signed in". It now reads as not accepted, and is retried briefly,
+  which covers a session that is still settling.
+- **A retry now starts from a clean jar.** The sign-in page was loaded immediately after asking for
+  the cookie jar to be cleared, and that clear is asynchronous, so the previous attempt's cookies
+  could still be present. The page now waits for the clear to finish. The exit path also did not
+  actually remove the Google session — it expired cookies by name, which does not remove a cookie
+  scoped to a domain such as `.youtube.com`, so a signed-in session leaked into the next attempt.
+  The whole jar is dropped now.
+- **A look-alike page can no longer end a sign-in.** The check for a YouTube page matched on the
+  start of the address, so `www.youtube.com.example.com` was accepted as YouTube. It matches on the
+  host now.
+- **A rotation no longer interrupts sign-in.** Turning the device mid-flow destroyed the WebView and
+  restarted sign-in.
+
+## Notes
+
+- Signing in only reads. Nothing is written back to the account and nothing is deleted.
+- The session is a cookie, stored encrypted on the device only and sent only to YouTube.
+- One universal APK, and the same signing key as every earlier release.
+
 # NeuroTube v1.5.6
 
 **Release date:** 2026-10-28
