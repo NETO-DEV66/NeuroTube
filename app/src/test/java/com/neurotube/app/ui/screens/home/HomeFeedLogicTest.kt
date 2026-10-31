@@ -264,6 +264,8 @@ class HomeFeedLogicTest {
                 14,
                 FeedSource.DISCOVERY,
                 18,
+                FeedSource.YOUTUBE_HOME,
+                0,
                 FeedSource.CHANNEL_MEMORY,
                 8,
                 FeedSource.NEIGHBOURS,
@@ -278,6 +280,8 @@ class HomeFeedLogicTest {
                 12,
                 FeedSource.DISCOVERY,
                 10,
+                FeedSource.YOUTUBE_HOME,
+                0,
                 FeedSource.CHANNEL_MEMORY,
                 4,
                 FeedSource.NEIGHBOURS,
@@ -292,11 +296,31 @@ class HomeFeedLogicTest {
                 10,
                 FeedSource.DISCOVERY,
                 10,
+                FeedSource.YOUTUBE_HOME,
+                0,
                 FeedSource.CHANNEL_MEMORY,
                 4,
                 FeedSource.NEIGHBOURS,
                 0,
             )
+    }
+
+    @Test
+    fun `the account's own picks take their quota out of discovery, not on top of it`() {
+        val guest = homeFeedQuotas(40, subCount = 12, totalInteractions = 200)
+        val signedIn = homeFeedQuotas(40, subCount = 12, totalInteractions = 200, hasYouTubeHome = true)
+
+        // The lane gets a real share, and the page it was carved from is the generic exploration one.
+        assertThat(signedIn[FeedSource.YOUTUBE_HOME]).isEqualTo(6)
+        assertThat(signedIn[FeedSource.DISCOVERY]).isEqualTo(4)
+        assertThat(signedIn[FeedSource.DISCOVERY]!! + signedIn[FeedSource.YOUTUBE_HOME]!!)
+            .isEqualTo(guest[FeedSource.DISCOVERY])
+
+        // Every other lane keeps its share, and the page still adds up to the whole target.
+        for (lane in listOf(FeedSource.SUBS, FeedSource.RELATED, FeedSource.CHANNEL_MEMORY, FeedSource.NEIGHBOURS)) {
+            assertThat(signedIn[lane]).isEqualTo(guest[lane])
+        }
+        assertThat(signedIn.values.sum()).isEqualTo(40)
     }
 
     @Test
@@ -329,11 +353,34 @@ class HomeFeedLogicTest {
                 1,
                 FeedSource.DISCOVERY,
                 1,
+                FeedSource.YOUTUBE_HOME,
+                0,
                 FeedSource.CHANNEL_MEMORY,
                 1,
                 FeedSource.NEIGHBOURS,
                 0,
             )
+    }
+
+    @Test
+    fun `blendFeedSources puts the account's own picks on the page when discovery runs dry`() {
+        val result =
+            blendFeedSources(
+                lanes =
+                    mapOf(
+                        FeedSource.YOUTUBE_HOME to listOf(vc("y1", "Y1"), vc("y2", "Y2")),
+                    ),
+                quotas =
+                    mapOf(
+                        FeedSource.YOUTUBE_HOME to 1,
+                        FeedSource.DISCOVERY to 1,
+                    ),
+                targetSize = 2,
+            )
+
+        // Discovery has nothing, so the account lane's second pick fills the page behind its quota.
+        assertThat(result.videos.map { it.id }).containsExactly("y1", "y2").inOrder()
+        assertThat(result.sourceCounts[FeedSource.YOUTUBE_HOME]).isEqualTo(2)
     }
 
     @Test

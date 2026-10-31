@@ -54,4 +54,20 @@ class HomeCardOriginTest {
 
         assertThat(queriesById(listOf("first" to listOf(shared), "second" to listOf(shared)))).containsExactly("x", "first")
     }
+
+    @Test
+    fun `an account pick says it came from the account, not from a seed or a search`() {
+        val videos = listOf(video("a"))
+
+        val origins =
+            pageOrigins(
+                videos,
+                { FeedSource.YOUTUBE_HOME },
+                mapOf("a" to "Seed"),
+                mapOf("a" to "query"),
+                setOf("ch-a"),
+            )
+
+        assertThat(origins).containsExactly("a", HomeCardOrigin.youtubeHome)
+    }
 }

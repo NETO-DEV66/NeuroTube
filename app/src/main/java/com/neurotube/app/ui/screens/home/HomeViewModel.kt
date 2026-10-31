@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.neurotube.app.R
+import com.neurotube.app.account.YouTubeAccountManager
 import com.neurotube.app.data.engagement.FeedInvalidationBus
 import com.neurotube.app.data.feed.FeedPrefetchQueue
 import com.neurotube.app.data.feed.FeedPrefetchRequest
@@ -67,6 +68,8 @@ import javax.inject.Inject
 private data class Wave1FeedResults(
     val discovery: List<Pair<String, List<Video>>>,
     val related: RelatedGraphFetchResult,
+    /** The signed-in account's own Home picks; empty while signed out. */
+    val youtubeHome: List<Video> = emptyList(),
 )
 
 @HiltViewModel
@@ -87,6 +90,7 @@ class HomeViewModel
         private val chipFeeds: HomeChipFeeds,
         private val snapshotRecorder: HomeSnapshotRecorder,
         private val neighbourChannels: NeighbourChannelsRepository,
+        private val accountManager: YouTubeAccountManager,
         savedStateHandle: SavedStateHandle,
         @ApplicationContext private val appContext: Context,
     ) : ViewModel() {
@@ -122,9 +126,20 @@ class HomeViewModel
 
             // Next pages of earlier searches a short load-more page may fetch.
             private const val DEEPER_SEARCH_PAGES = 2
+
+            // Account picks a short load-more page is topped up with; the server's order is kept.
+            private const val LOAD_MORE_YOUTUBE_HOME_SLOTS = 6
         }
 
         private val relatedPickIds = ConcurrentHashMap.newKeySet<String>()
+
+        /**
+         * The account's own Home picks from the last first-page load, kept so load-more pages reuse
+         * them instead of refetching: one request per Home load, in the server's order. Cleared when
+         * the account changes, since they describe the previous identity.
+         */
+        @Volatile
+        private var accountHomePicks: List<Video> = emptyList()
 
         private val channelMetadataEnrichmentInFlight =
             java.util.concurrent.ConcurrentHashMap
@@ -293,6 +308,7 @@ class HomeViewModel
                             // The personalised lanes were ranked for the previous identity, so they
                             // are dropped rather than patched, and the next load asks as the new one.
                             HomeFeedCache.clear()
+                            accountHomePicks = emptyList()
                             shortsRepository.clearCaches()
                             viewModelScope.launch(PerformanceDispatcher.networkIO) {
                                 runCatching { persistentHomeFeedCache.clearAll() }
@@ -566,9 +582,13 @@ class HomeViewModel
                                             feedSources.fetchRelatedGraph(seedInputs + longTermInputs, seedIds, ::cacheFilters)
                                         }
 
+                                    // ── Account lane: YouTube's own recommendations, when signed in ──
+                                    val deferredYouTubeHome = async { feedSources.accountHomeFeed() }
+
                                     Wave1FeedResults(
                                         discovery = deferredDiscovery.await(),
                                         related = deferredRelated.await(),
+                                        youtubeHome = deferredYouTubeHome.await(),
                                     )
                                 }
                             }
@@ -661,7 +681,9 @@ class HomeViewModel
                                 share = FlowNeuroEngine::shareByInterest,
                                 rawNeighbours = rawNeighbours,
                                 searchOf = queriesById(discoveryPairs)::get,
+                                rawYouTubeHome = results.youtubeHome,
                             )
+                        accountHomePicks = lanes.bestYouTubeHome
 
                         Log.d(
                             TAG,
@@ -1102,6 +1124,7 @@ class HomeViewModel
                 val queries = HashMap<String, String>()
 
                 val reserveSearchIds = HashSet<String>()
+                val youTubeHomeIds = HashSet<String>()
 
                 fun origins() =
                     pageOrigins(
@@ -1110,6 +1133,7 @@ class HomeViewModel
                             when (it) {
                                 in relatedPickIds -> FeedSource.RELATED
                                 in reserveSearchIds -> FeedSource.DISCOVERY
+                                in youTubeHomeIds -> FeedSource.YOUTUBE_HOME
                                 else -> null
                             }
                         },
@@ -1119,6 +1143,7 @@ class HomeViewModel
                     )
 
                 fillPageFromChannelMemory(page, channelCounts, pageIds, userSubs, now)
+                fillPageFromYouTubeHome(page, channelCounts, pageIds, youTubeHomeIds)
 
                 val reserveAdded = fillPageFromReserve(page, channelCounts, pageIds, userSubs, now, reserveSearchIds)
                 reserveSearchIds.forEach { id -> searchPages.queryOf(id)?.let { queries[id] = it } }
@@ -1601,6 +1626,38 @@ class HomeViewModel
             if (addUniqueVideo(pick, page, channelCounts, pageIds, maxPerChannel = 1)) {
                 _uiState.update { it.copy(origins = it.origins + (pick.id to HomeCardOrigin.channelMemory)) }
             }
+        }
+
+        /**
+         * Tops a load-more page up from the account's own YouTube Home.
+         *
+         * The picks the first page did not already use are appended in the server's order, since the
+         * account's own ranking is the reason this lane exists. Signed out this is a no-op.
+         */
+        private suspend fun fillPageFromYouTubeHome(
+            page: MutableList<Video>,
+            channelCounts: MutableMap<String, Int>,
+            pageIds: MutableSet<String>,
+            youTubeHomeIds: MutableSet<String>,
+        ) {
+            if (!accountManager.isSignedIn) return
+            val now = System.currentTimeMillis()
+            val exclusions = feedExclusions()
+            val candidates =
+                accountHomePicks
+                    .filterValid()
+                    .filterWatched(watchedVideoIds.value)
+                    .filterRecentHomeSuggestion(now)
+                    .filterNot(exclusions::hidesFromRecommendations)
+            val start = page.size
+            addUniquePageVideos(
+                candidates = candidates,
+                targetList = page,
+                channelCounts = channelCounts,
+                usedVideoIds = pageIds,
+                targetSize = page.size + LOAD_MORE_YOUTUBE_HOME_SLOTS,
+            )
+            page.drop(start).mapTo(youTubeHomeIds) { it.id }
         }
 
         private suspend fun subscriptionOwners(channelIds: Set<String>): List<FeedItemOwner> =

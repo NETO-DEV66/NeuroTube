@@ -13,6 +13,13 @@ internal enum class FeedSource {
 
     /** Uploads of channels several of the viewer's channels sit next to; see NeighbourChannels (#907). */
     NEIGHBOURS,
+
+    /**
+     * YouTube's own recommendations for the signed-in account, read from its `FEwhat_to_watch` page.
+     * Empty while signed out: it is the only lane the app does not rank itself, so the order the
+     * server returned is kept.
+     */
+    YOUTUBE_HOME,
 }
 
 internal data class FeedCandidate(
@@ -32,6 +39,7 @@ internal fun homeFeedQuotas(
     subCount: Int,
     totalInteractions: Int,
     hasNeighbours: Boolean = false,
+    hasYouTubeHome: Boolean = false,
 ): Map<FeedSource, Int> {
     val slots = remaining.coerceAtLeast(0)
     if (slots == 0) {
@@ -55,6 +63,11 @@ internal fun homeFeedQuotas(
             subCount <= 0 -> (slots * 0.45).toInt()
             else -> (slots * 0.25).toInt()
         }.coerceAtLeast(0)
+    // YouTube's own picks take their share out of the discovery lane, not on top of it: the account's
+    // recommendations are what the generic exploration was standing in for. The rest of the page is
+    // untouched, so a signed-in viewer's feed keeps the same shape with a better discovery lane.
+    val youtubeHome = if (hasYouTubeHome) (discovery * YOUTUBE_HOME_SHARE).toInt().coerceIn(0, discovery) else 0
+    val discoveryRemaining = discovery - youtubeHome
     // The remainder, about an eighth of the page: the share the retired trending lane used to get.
     val remainder = (slots - subs - related - discovery).coerceAtLeast(0)
     // Neighbours share it once the viewer has channels of their own to point at them.
@@ -63,11 +76,15 @@ internal fun homeFeedQuotas(
     return mapOf(
         FeedSource.SUBS to subs,
         FeedSource.RELATED to related,
-        FeedSource.DISCOVERY to discovery,
+        FeedSource.DISCOVERY to discoveryRemaining,
+        FeedSource.YOUTUBE_HOME to youtubeHome,
         FeedSource.CHANNEL_MEMORY to remainder - neighbours,
         FeedSource.NEIGHBOURS to neighbours,
     )
 }
+
+/** The part of the discovery lane the account's own Home feed takes once a viewer is signed in. */
+private const val YOUTUBE_HOME_SHARE = 0.6
 
 internal fun addUniqueVideo(
     video: Video?,
@@ -139,8 +156,24 @@ internal fun blendFeedSources(
         FeedSource.entries.associateWith { source ->
             java.util.ArrayDeque(lanes[source].orEmpty().map { FeedCandidate(it, source) })
         }
-    val quotaOrder = listOf(FeedSource.SUBS, FeedSource.RELATED, FeedSource.DISCOVERY, FeedSource.CHANNEL_MEMORY, FeedSource.NEIGHBOURS)
-    val scarcityOrder = listOf(FeedSource.RELATED, FeedSource.DISCOVERY, FeedSource.SUBS)
+    val quotaOrder =
+        listOf(
+            FeedSource.SUBS,
+            FeedSource.RELATED,
+            FeedSource.YOUTUBE_HOME,
+            FeedSource.DISCOVERY,
+            FeedSource.CHANNEL_MEMORY,
+            FeedSource.NEIGHBOURS,
+        )
+    // The account's own picks lead the refill: when a lane runs dry they are the best replacement
+    // available, and they are absent while signed out so this changes nothing for a guest.
+    val scarcityOrder =
+        listOf(
+            FeedSource.YOUTUBE_HOME,
+            FeedSource.RELATED,
+            FeedSource.DISCOVERY,
+            FeedSource.SUBS,
+        )
     val addedBySource = mutableMapOf<FeedSource, Int>()
     val out = mutableListOf<FeedCandidate>()
 

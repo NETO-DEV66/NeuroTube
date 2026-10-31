@@ -59,6 +59,7 @@ class HomeFeedAssemblyTest {
         freshSlots: Int = 3,
         avatars: Map<String, String> = emptyMap(),
         rankRelevant: suspend (List<Video>) -> List<Video> = { it },
+        youTubeHome: List<Video> = emptyList(),
     ) = buildHomeFeedLanes(
         rawSubs = subs,
         rawDiscovery = discovery,
@@ -74,6 +75,7 @@ class HomeFeedAssemblyTest {
         subAvatarMap = avatars,
         rank = { it },
         rankRelevant = rankRelevant,
+        rawYouTubeHome = youTubeHome,
     )
 
     @Test
@@ -436,4 +438,61 @@ class HomeFeedAssemblyTest {
         assertThat(relatedSeedTitles(candidates, seeds, setOf("shown", "orphan")))
             .containsExactly("shown", "Wonderwall guitar playalong")
     }
+
+    @Test
+    fun `the account's own picks keep YouTube's order instead of being re-ranked`() =
+        runTest {
+            val built =
+                lanes(
+                    youTubeHome = listOf(video("y1"), video("y2"), video("y3")),
+                    // A rank that would reverse the server's order if it were applied to this lane.
+                    rankRelevant = { it.reversed() },
+                )
+
+            assertThat(built.bestYouTubeHome.map { it.id }).containsExactly("y1", "y2", "y3").inOrder()
+        }
+
+    @Test
+    fun `the account lane is empty for a guest`() =
+        runTest {
+            assertThat(lanes(youTubeHome = emptyList()).bestYouTubeHome).isEmpty()
+        }
+
+    @Test
+    fun `the account lane drops shorts watched and blocked items like every other lane`() =
+        runTest {
+            val built =
+                lanes(
+                    watched = setOf("seen"),
+                    exclusions = FeedExclusions(suppressedVideoIds = setOf("blocked")),
+                    youTubeHome =
+                        listOf(
+                            video("keep"),
+                            video("short", isShort = true),
+                            video("zero", duration = 0),
+                            video("seen"),
+                            video("blocked"),
+                        ),
+                )
+
+            assertThat(built.bestYouTubeHome.map { it.id }).containsExactly("keep")
+        }
+
+    @Test
+    fun `the account's picks reach the assembled page through their own lane`() =
+        runTest {
+            val built = lanes(youTubeHome = listOf(video("y1"), video("y2")))
+
+            val mix =
+                assembleHomeFeed(
+                    lanes = built,
+                    onScreenIds = emptySet(),
+                    subCount = 0,
+                    totalInteractions = 0,
+                    targetSize = 10,
+                )
+
+            assertThat(mix.selectedSourceCounts[FeedSource.YOUTUBE_HOME]).isEqualTo(2)
+            assertThat(mix.videos.map { it.id }).contains("y1")
+        }
 }

@@ -26,6 +26,10 @@ private const val BEST_MEMORY_LIMIT = 6
 private const val BEST_NEIGHBOUR_LIMIT = 4
 private const val BEST_RELATED_LIMIT = 12
 
+// YouTube's own picks kept per page. Deeper than any single lane needs, so the blend never runs out
+// before the quota is met, but bounded so a runaway server response cannot bloat the mix.
+private const val YOUTUBE_HOME_LIMIT = 20
+
 internal fun List<Video>.enrichAvatars(subAvatarMap: Map<String, String>): List<Video> =
     if (subAvatarMap.isEmpty()) {
         this
@@ -56,6 +60,11 @@ internal data class HomeFeedLanes(
     /** Neighbour channels with at least one upload on the viewer's subjects; the others are dropped. */
     val relevantNeighbourChannels: Set<String>,
     val bestRelated: List<Video>,
+    /**
+     * The signed-in account's own Home recommendations, in the order YouTube returned them. Empty
+     * while signed out, so the lane and its quota simply do not exist for a guest.
+     */
+    val bestYouTubeHome: List<Video> = emptyList(),
     val relatedCandidates: List<GraphCandidate>,
     val relatedMetadata: Map<String, GraphCandidate>,
     val subsByRecency: List<Video>,
@@ -95,6 +104,7 @@ internal suspend fun buildHomeFeedLanes(
     share: suspend (List<Video>) -> List<Video> = { it },
     rawNeighbours: List<Video> = emptyList(),
     searchOf: (videoId: String) -> String? = { null },
+    rawYouTubeHome: List<Video> = emptyList(),
 ): HomeFeedLanes {
     // The fresh-subs lane and the subs backlog bypass rank(), so hidden videos, channels and
     // topics are dropped here or they would resurface through them.
@@ -123,6 +133,17 @@ internal suspend fun buildHomeFeedLanes(
             .filterWatched(watched)
             .filterRecentHomeSuggestion(now)
             .filterNot(exclusions::hidesFromRecommendations)
+    // YouTube's own picks are shown in the order the server ranked them for this account, so they
+    // are filtered but never re-ranked: the local engine does not know better than the account's
+    // own watch history. Shorts and zero-duration entries go, since the grid cannot play them.
+    val youTubeHomePool =
+        rawYouTubeHome
+            .filterValid()
+            .filterWatched(watched)
+            .filterRecentHomeSuggestion(now)
+            .filterNot(exclusions::hidesFromRecommendations)
+            .distinctBy { it.id }
+            .take(YOUTUBE_HOME_LIMIT)
 
     val subsByRecency = subsPool.sortedByDescending { it.timestamp }
 
@@ -196,6 +217,7 @@ internal suspend fun buildHomeFeedLanes(
                     taste,
                 ),
             ).take(BEST_RELATED_LIMIT),
+        bestYouTubeHome = youTubeHomePool,
         relatedCandidates = relatedCandidates,
         relatedMetadata = relatedMetadata,
         subsByRecency = subsByRecency,
@@ -244,7 +266,14 @@ internal fun assembleHomeFeed(
     }
 
     val remaining = (targetSize - finalMix.size).coerceAtLeast(0)
-    val quotas = homeFeedQuotas(remaining, subCount, totalInteractions, hasNeighbours = lanes.bestNeighbours.isNotEmpty())
+    val quotas =
+        homeFeedQuotas(
+            remaining,
+            subCount,
+            totalInteractions,
+            hasNeighbours = lanes.bestNeighbours.isNotEmpty(),
+            hasYouTubeHome = lanes.bestYouTubeHome.isNotEmpty(),
+        )
     val sourceMix =
         blendFeedSources(
             lanes =
@@ -254,6 +283,7 @@ internal fun assembleHomeFeed(
                         lanes.bestSubs.drop(SHOWN_FRESH_AFTER_SUBS),
                     FeedSource.RELATED to lanes.bestRelated,
                     FeedSource.DISCOVERY to lanes.bestDiscovery,
+                    FeedSource.YOUTUBE_HOME to lanes.bestYouTubeHome,
                     FeedSource.CHANNEL_MEMORY to lanes.bestMemory,
                     FeedSource.NEIGHBOURS to lanes.bestNeighbours,
                 ),

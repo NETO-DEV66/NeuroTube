@@ -1,5 +1,6 @@
 package com.neurotube.app.ui.screens.home
 
+import com.neurotube.app.account.YouTubeAccountManager
 import com.neurotube.app.data.local.HomeFeedCacheFilters
 import com.neurotube.app.data.local.HomeFeedCacheRepository
 import com.neurotube.app.data.local.LikedVideosRepository
@@ -12,6 +13,7 @@ import com.neurotube.app.data.recommendation.GraphSeedSelector
 import com.neurotube.app.data.recommendation.GraphSeedSource
 import com.neurotube.app.data.recommendation.NeighbourChannels
 import com.neurotube.app.data.repository.YouTubeRepository
+import com.neurotube.app.innertube.YouTube
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -53,6 +55,7 @@ class HomeFeedSources
         private val likedVideosRepository: LikedVideosRepository,
         private val playlistRepository: PlaylistRepository,
         private val neuroEngine: FlowNeuroEngine,
+        private val accountManager: YouTubeAccountManager,
     ) {
         private data class CachedRelated(
             val videos: List<Video>,
@@ -66,6 +69,23 @@ class HomeFeedSources
         suspend fun historySeedInputs(): List<GraphSeedInput> =
             graphSeedInputsFromHistory(viewHistory.getRecentVideoHistory(HISTORY_SEED_MAX, includeShorts = false))
                 .withoutDisliked()
+
+        /**
+         * The signed-in account's own Home picks, in the order YouTube ranked them, or an empty list
+         * while signed out.
+         *
+         * This is the one lane the app does not compute itself: the account's real YouTube Home is
+         * the whole point of it, so its order is kept and only the app's own exclusions are applied
+         * further down the pipeline. A failure is not an error — a guest, an expired cookie or a
+         * network blip all mean the same thing, that this lane contributes nothing and the local
+         * engine carries the feed as it did before.
+         */
+        suspend fun accountHomeFeed(): List<Video> =
+            if (!accountManager.isSignedIn) {
+                emptyList()
+            } else {
+                runCatching { YouTube.accountHomeFeed().getOrThrow().videos }.getOrDefault(emptyList())
+            }
 
         internal suspend fun gatherSavedSeedSources(): SavedSeedSources {
             val historySeeds =

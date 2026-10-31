@@ -880,6 +880,33 @@ object YouTube {
         }.onFailure { error -> if (ImportDiagnostics.recording) logFailure("accountPlaylists", error) }
 
     /**
+     * The signed-in viewer's own Home feed — what youtube.com shows on `FEwhat_to_watch` — one page
+     * at a time.
+     *
+     * This is the one page that carries YouTube's *own* recommendations for the account, as opposed
+     * to the feed NeuroTube builds locally from the imported library. It is served by the main site
+     * to a signed-in caller, and answers an anonymous one with a "start watching" nudge instead of
+     * rows, so the cookie is required for it to mean anything.
+     *
+     * Rows arrive as `lockupViewModel` cards inside a `richGridRenderer`, which is the shape
+     * [toMainSiteFeedPage] already reads, so this needs no parser of its own.
+     */
+    suspend fun accountHomeFeed(continuation: String? = null) =
+        runCatching {
+            val response =
+                innerTube
+                    .mainSiteBrowse(
+                        client = WEB_AUTHENTICATED,
+                        browseId = if (continuation == null) HOME_FEED_BROWSE_ID else null,
+                        continuation = continuation,
+                        setLogin = true,
+                    ).bodyAsText()
+
+            if (ImportDiagnostics.recording) logResponse("accountHomeFeed", 200, response)
+            Json.parseToJsonElement(response).toMainSiteFeedPage()
+        }.onFailure { error -> if (ImportDiagnostics.recording) logFailure("accountHomeFeed", error) }
+
+    /**
      * The viewer's watch history, one page at a time.
      *
      * `FEhistory` is the page YouTube's own history view shows, and like the playlists page it needs
@@ -2869,3 +2896,6 @@ object YouTube {
 private const val ACCOUNT_INFO_ATTEMPTS = 3
 
 private const val ACCOUNT_INFO_RETRY_DELAY_MS = 700L
+
+/** The main site's own Home page: the viewer's personalised `what to watch` feed. */
+private const val HOME_FEED_BROWSE_ID = "FEwhat_to_watch"

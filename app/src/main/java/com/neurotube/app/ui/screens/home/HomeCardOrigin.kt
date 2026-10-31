@@ -14,11 +14,14 @@ data class HomeCardOrigin(
     val kind: Kind,
     val detail: String? = null,
 ) {
-    enum class Kind { SUBSCRIPTION, RELATED, SEARCH, CHANNEL_MEMORY, NEIGHBOUR }
+    enum class Kind { SUBSCRIPTION, RELATED, SEARCH, CHANNEL_MEMORY, NEIGHBOUR, YOUTUBE_HOME }
 
     companion object {
         val subscription = HomeCardOrigin(Kind.SUBSCRIPTION)
         val channelMemory = HomeCardOrigin(Kind.CHANNEL_MEMORY)
+
+        /** A pick from the signed-in account's own YouTube Home; it has no seed or query to name. */
+        val youtubeHome = HomeCardOrigin(Kind.YOUTUBE_HOME)
 
         fun related(seedTitle: String?) = HomeCardOrigin(Kind.RELATED, seedTitle)
 
@@ -52,6 +55,10 @@ internal fun HomeCardOrigin.label(): String =
         HomeCardOrigin.Kind.NEIGHBOUR -> {
             detail?.let { stringResource(R.string.home_origin_neighbour, it) }
                 ?: stringResource(R.string.home_origin_neighbour_unnamed)
+        }
+
+        HomeCardOrigin.Kind.YOUTUBE_HOME -> {
+            stringResource(R.string.home_origin_youtube_home)
         }
     }
 
@@ -93,6 +100,10 @@ internal fun pageOrigins(
 
                     FeedSource.NEIGHBOURS -> {
                         HomeCardOrigin.neighbour(neighbourPointers[video.channelId])
+                    }
+
+                    FeedSource.YOUTUBE_HOME -> {
+                        HomeCardOrigin.youtubeHome
                     }
 
                     null -> {
