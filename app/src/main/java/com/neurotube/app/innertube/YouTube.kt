@@ -126,6 +126,7 @@ import com.neurotube.app.utils.relativedate.RelativeUploadDateParser
 import io.ktor.client.call.body
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -2761,16 +2762,35 @@ object YouTube {
                 }.jsonPrimitive.content
         }
 
+    /**
+     * The signed-in account's own details, or a failure when YouTube does not accept the session.
+     *
+     * The menu can come back without an account header while a freshly minted session is still
+     * propagating, so the call is retried a couple of times before the sign-in is called a failure.
+     * That transient is the other half of why a first attempt could fail where a retry succeeded.
+     */
     suspend fun accountInfo(): Result<AccountInfo> =
         runCatching {
-            innerTube
-                .accountMenu(WEB_REMIX)
-                .body<AccountMenuResponse>()
-                .actions[0]
-                .openPopupAction.popup.multiPageMenuRenderer
-                .header
-                ?.activeAccountHeaderRenderer
-                ?.toAccountInfo()!!
+            var lastError: Throwable? = null
+            repeat(ACCOUNT_INFO_ATTEMPTS) { attempt ->
+                val info =
+                    innerTube
+                        .accountMenu(WEB_REMIX)
+                        .body<AccountMenuResponse>()
+                        .actions
+                        .firstOrNull()
+                        ?.openPopupAction
+                        ?.popup
+                        ?.multiPageMenuRenderer
+                        ?.header
+                        ?.activeAccountHeaderRenderer
+                        ?.toAccountInfo()
+                if (info != null) return@runCatching info
+
+                lastError = IllegalStateException("YouTube did not accept the session")
+                if (attempt < ACCOUNT_INFO_ATTEMPTS - 1) delay(ACCOUNT_INFO_RETRY_DELAY_MS)
+            }
+            throw lastError ?: IllegalStateException("YouTube did not accept the session")
         }
 
     suspend fun getMediaInfo(videoId: String): Result<MediaInfo> =
@@ -2844,3 +2864,8 @@ object YouTube {
 
     private val VISITOR_DATA_REGEX = Regex("^Cg[t|s]")
 }
+
+/** A freshly minted session can take a moment to be reflected in the account menu. */
+private const val ACCOUNT_INFO_ATTEMPTS = 3
+
+private const val ACCOUNT_INFO_RETRY_DELAY_MS = 700L
